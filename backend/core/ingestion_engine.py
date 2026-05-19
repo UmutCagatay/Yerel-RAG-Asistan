@@ -49,7 +49,7 @@ class IngestionEngine:
         """
         if not file_paths:
             log.warning("İşlenecek dosya yok.")
-            return {"success": [], "failed": []}
+            return {"success": [], "failed": [], "vlm_loaded": True}
 
         log.info(f"Ingestion başlatıldı: {len(file_paths)} dosya")
         start_time = time.time()
@@ -72,6 +72,11 @@ class IngestionEngine:
                 f"VLM yüklenemedi, görselsiz devam ediliyor: {e}",
                 exc_info=True,
             )
+
+        # VLM yükleme bayrağını şimdi yakala. Faz 1 finally bloku vlm_engine'i
+        # sileceği için sonraki return'larda erişemeyiz. Bu bayrak UI'ya
+        # "görseller atlandı" uyarısı göstermek için lazım.
+        vlm_loaded = vlm_engine is not None
 
         try:
             parser = DocumentParser()
@@ -112,7 +117,7 @@ class IngestionEngine:
 
         if not parsed:
             log.warning("Hiçbir dosya başarıyla parse edilemedi, Faz 2 atlandı.")
-            return {"success": [], "failed": failed}
+            return {"success": [], "failed": failed, "vlm_loaded": vlm_loaded}
 
         # ── Faz 2: Embedding + ChromaDB yazımı ───────────────────────────────
         log.info("Faz 2: Embedding (Jina) yükleniyor...")
@@ -167,4 +172,4 @@ class IngestionEngine:
         for f in failed:
             log.warning(f"Başarısız: {f['file_name']} — {f['reason']}")
 
-        return {"success": success, "failed": failed}
+        return {"success": success, "failed": failed, "vlm_loaded": vlm_loaded}

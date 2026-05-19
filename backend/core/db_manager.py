@@ -323,6 +323,9 @@ class DBManager:
             "success": result["success"],
             "failed": result["failed"],
             "skipped": skipped,
+            # VLM yüklenebildi mi bayrağı — UI görsellerin atlandığını
+            # kullanıcıya uyarı olarak gösterir.
+            "vlm_loaded": result.get("vlm_loaded", True),
         }
 
     def list_documents(self, collection: str | None = None) -> list[dict]:

@@ -164,25 +164,31 @@ function App() {
   const activeChat = chats.find((c) => c.id === activeChatId);
 
   // ── Initial fetch ──────────────────────────────────────────────────────
+  async function fetchInitial() {
+    setLoading(true);
+    setError(null);
+    try {
+      const [docsData, colData, healthData] = await Promise.all([
+        fetch(`${API}/documents`).then((r) => r.json()),
+        fetch(`${API}/collections`).then((r) => r.json()),
+        fetch(`${API}/health`).then((r) => r.json()),
+      ]);
+      setDocs(docsData.documents);
+      setCollection(docsData.collection);
+      setAllCollections(colData.all);
+      if (typeof healthData.max_file_size_mb === "number") {
+        setMaxFileSizeMb(healthData.max_file_size_mb);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Bağlantı hatası");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    Promise.all([
-      fetch(`${API}/documents`).then((r) => r.json()),
-      fetch(`${API}/collections`).then((r) => r.json()),
-      fetch(`${API}/health`).then((r) => r.json()),
-    ])
-      .then(([docsData, colData, healthData]) => {
-        setDocs(docsData.documents);
-        setCollection(docsData.collection);
-        setAllCollections(colData.all);
-        if (typeof healthData.max_file_size_mb === "number") {
-          setMaxFileSizeMb(healthData.max_file_size_mb);
-        }
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message);
-        setLoading(false);
-      });
+    fetchInitial();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Aktif koleksiyon değişince sohbet listesi de yenilensin
@@ -207,10 +213,12 @@ function App() {
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [showCollectionMenu]);
 
-  // Toast'u 4 saniye sonra otomatik kapat
+  // Toast'u belirli süre sonra otomatik kapat. Önemli mesajlar (error/info)
+  // için daha uzun dur — örneğin failed dosya listesi okunmalı.
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 4000);
+    const dur = toast.type === "success" ? 4000 : 8000;
+    const t = setTimeout(() => setToast(null), dur);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -667,13 +675,42 @@ function App() {
       const successCount = result.success?.length ?? 0;
       const skippedCount = result.skipped?.length ?? 0;
       const failedCount = result.failed?.length ?? 0;
+
+      // Özet satırı (1. satır)
       const summary: string[] = [];
       if (successCount > 0) summary.push(`${successCount} yüklendi`);
       if (skippedCount > 0) summary.push(`${skippedCount} atlandı`);
       if (failedCount > 0) summary.push(`${failedCount} başarısız`);
+
+      const lines: string[] = [];
+      lines.push(summary.join(" · ") || "Hiçbir dosya işlenmedi");
+
+      // Başarısız dosyaların detayı — hangi dosya neden düştü
+      if (failedCount > 0 && Array.isArray(result.failed)) {
+        for (const f of result.failed) {
+          lines.push(`✗ ${f.file_name}: ${f.reason}`);
+        }
+      }
+
+      // VLM yüklenemediyse uyarı — görsel içerik atlanmış olur,
+      // kullanıcı fark etsin
+      if (result.vlm_loaded === false && successCount > 0) {
+        lines.push(
+          "⚠ Görsel modeli yüklenemedi — tablo/şema içerikleri atlandı.",
+        );
+      }
+
+      // Tip seçimi: failed varsa error, VLM eksikse info, diğer success
+      const toastType: ToastMsg["type"] =
+        failedCount > 0
+          ? "error"
+          : result.vlm_loaded === false
+            ? "info"
+            : "success";
+
       setToast({
-        type: failedCount > 0 ? "error" : "success",
-        message: summary.join(" · ") || "Hiçbir dosya işlenmedi",
+        type: toastType,
+        message: lines.join("\n"),
       });
 
       await refreshDocs();
@@ -729,7 +766,9 @@ function App() {
         <div className="ml-auto relative" ref={collectionMenuRef}>
           <button
             onClick={() => setShowCollectionMenu((v) => !v)}
-            className="text-sm text-gray-700 hover:bg-gray-100 px-3 py-1 rounded flex items-center gap-1"
+            disabled={isStreaming}
+            className="text-sm text-gray-700 hover:bg-gray-100 px-3 py-1 rounded flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={isStreaming ? "Sorgu sürüyor, bekleyin" : undefined}
           >
             Koleksiyon: <span className="font-medium">{collection || "—"}</span>
             <span className="text-xs">▼</span>
@@ -773,6 +812,22 @@ function App() {
         </div>
       </header>
 
+      {error && (
+        <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center justify-between text-sm">
+          <span className="text-red-900">
+            Backend'e bağlanılamıyor — sunucu çalışıyor mu?{" "}
+            <span className="text-red-700 text-xs">({error})</span>
+          </span>
+          <button
+            onClick={fetchInitial}
+            disabled={loading}
+            className="text-xs px-3 py-1 border border-red-300 text-red-900 rounded hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? "Bağlanıyor..." : "Tekrar Dene"}
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-64 border-r flex flex-col overflow-hidden">
           {/* Dokümanlar */}
@@ -799,7 +854,6 @@ function App() {
             />
 
             {loading && <p className="text-sm text-gray-500">Yükleniyor...</p>}
-            {error && <p className="text-sm text-red-600">Hata: {error}</p>}
             {!loading && !error && docs.length === 0 && (
               <p className="text-sm text-gray-500">Doküman yok.</p>
             )}
@@ -843,8 +897,9 @@ function App() {
               <h2 className="font-semibold">Sohbetler</h2>
               <button
                 onClick={handleNewChat}
-                className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600"
-                title="Yeni sohbet aç"
+                disabled={isStreaming}
+                className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                title={isStreaming ? "Sorgu sürüyor, bekleyin" : "Yeni sohbet aç"}
               >
                 + Yeni
               </button>
@@ -857,19 +912,31 @@ function App() {
                 {chats.map((chat) => (
                   <li
                     key={chat.id}
-                    className={`group flex items-center justify-between gap-2 px-2 py-1 rounded cursor-pointer ${
+                    className={`group flex items-center justify-between gap-2 px-2 py-1 rounded ${
+                      isStreaming && chat.id !== activeChatId
+                        ? "opacity-50 cursor-not-allowed"
+                        : "cursor-pointer"
+                    } ${
                       activeChatId === chat.id
                         ? "bg-blue-100 text-blue-900"
-                        : "hover:bg-gray-100"
+                        : !isStreaming
+                          ? "hover:bg-gray-100"
+                          : ""
                     }`}
                     onClick={() => {
+                      if (isStreaming) return;
                       if (editingTitleId !== chat.id) handleSelectChat(chat.id);
                     }}
                     onDoubleClick={(e) => {
+                      if (isStreaming) return;
                       e.stopPropagation();
                       handleStartRename(chat);
                     }}
-                    title="Çift tıklayarak başlığı düzenle"
+                    title={
+                      isStreaming
+                        ? "Sorgu sürüyor, bekleyin"
+                        : "Çift tıklayarak başlığı düzenle"
+                    }
                   >
                     {editingTitleId === chat.id ? (
                       <input
@@ -894,7 +961,8 @@ function App() {
                           e.stopPropagation();
                           handleDeleteChat(chat.id);
                         }}
-                        className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600 text-xs px-1"
+                        disabled={isStreaming}
+                        className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600 text-xs px-1 disabled:opacity-0"
                         title="Sohbeti sil"
                       >
                         ×
@@ -916,8 +984,9 @@ function App() {
               {messages.length > 0 && (
                 <button
                   onClick={handleNewChat}
-                  className="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-100"
-                  title="Yeni sohbet"
+                  disabled={isStreaming}
+                  className="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={isStreaming ? "Sorgu sürüyor, bekleyin" : "Yeni sohbet"}
                 >
                   + Yeni Sohbet
                 </button>
@@ -1101,7 +1170,7 @@ function App() {
                   : "bg-blue-50 border border-blue-200 text-blue-900"
             }`}
           >
-            <span className="flex-1">{toast.message}</span>
+            <span className="flex-1 whitespace-pre-line">{toast.message}</span>
             <button
               onClick={() => setToast(null)}
               className="text-gray-500 hover:text-gray-700 text-xs"
