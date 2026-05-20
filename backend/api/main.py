@@ -315,6 +315,37 @@ def rename_document(body: RenameDocumentRequest):
     return {"renamed": result["new_name"]}
 
 
+class MoveDocumentRequest(BaseModel):
+    """Doküman taşıma isteği: aktif koleksiyondan başka koleksiyona."""
+
+    file_name: str
+    target_collection: str
+
+
+@app.post("/documents/move")
+def move_document(body: MoveDocumentRequest):
+    """
+    Bir dokümanı aktif koleksiyondan hedef koleksiyona taşır.
+    Embedding yeniden hesaplanmaz — chunks aynı vektörlerle target'a kopyalanıp
+    source'tan silinir.
+    """
+    result = db.move_document(body.file_name, body.target_collection)
+    if not result.get("moved"):
+        reason = result.get("reason", "Bilinmeyen hata")
+        if "zaten var" in reason:
+            status = 409
+        elif "içinde yok" in reason or "adında koleksiyon yok" in reason:
+            status = 404
+        else:
+            status = 400
+        raise HTTPException(status_code=status, detail=reason)
+    return {
+        "moved": result["file_name"],
+        "target": result["target"],
+        "chunks": result.get("chunks", 0),
+    }
+
+
 class QueryRequest(BaseModel):
     """Sorgu için gerekli bilgiler. file_name=None ise tüm koleksiyon kapsamı."""
 

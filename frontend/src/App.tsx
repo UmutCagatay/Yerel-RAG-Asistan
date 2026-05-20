@@ -150,6 +150,8 @@ function App() {
   const [deletingDoc, setDeletingDoc] = useState<string | null>(null);
   const [editingDocName, setEditingDocName] = useState<string | null>(null);
   const [editingDocValue, setEditingDocValue] = useState<string>("");
+  // Taşıma menüsü açık olan doküman — li'nin altına hedef listesi açılır
+  const [movingDoc, setMovingDoc] = useState<string | null>(null);
 
   // Koleksiyon yeniden adlandırma state'leri
   const [editingColName, setEditingColName] = useState<string | null>(null);
@@ -530,6 +532,61 @@ function App() {
   function handleCancelRenameDoc() {
     setEditingDocName(null);
     setEditingDocValue("");
+  }
+
+  // Doküman taşıma — inline mini menü ile hedef koleksiyon seçtirir.
+  // Embedding yeniden hesaplanmaz, ChromaDB chunks aynı vektörlerle
+  // target koleksiyona kopyalanıp source'tan silinir.
+  function handleStartMoveDoc(fileName: string) {
+    setMovingDoc(fileName);
+  }
+
+  function handleCancelMoveDoc() {
+    setMovingDoc(null);
+  }
+
+  async function handleMoveDoc(fileName: string, target: string) {
+    setMovingDoc(null);
+    try {
+      const res = await fetch(`${API}/documents/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_name: fileName,
+          target_collection: target,
+        }),
+      });
+
+      if (res.status === 409) {
+        const err = await res.json().catch(() => null);
+        setToast({
+          type: "error",
+          message: err?.detail || `'${fileName}' hedefte zaten var.`,
+        });
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.detail || `HTTP ${res.status}`);
+      }
+
+      const result = await res.json();
+      // Taşınan doküman aktif koleksiyondan kalktı, listeyi yenile
+      await refreshDocs();
+      // Seçili doküman taşınmışsa seçimi kaldır — artık bu koleksiyonda yok
+      if (selectedDoc === fileName) {
+        setSelectedDoc(null);
+      }
+      setToast({
+        type: "success",
+        message: `'${fileName}' -> '${target}' (${result.chunks ?? 0} chunk)`,
+      });
+    } catch (err) {
+      setToast({
+        type: "error",
+        message: `Taşınamadı: ${err instanceof Error ? err.message : "bilinmeyen"}`,
+      });
+    }
   }
 
   async function handleDeleteDoc(fileName: string) {
@@ -1045,68 +1102,119 @@ function App() {
             {!loading && !error && docs.length > 0 && (
               <ul className="space-y-1 text-sm">
                 {docs.map((doc) => (
-                  <li
-                    key={doc.file_name}
-                    className={`group flex items-center justify-between gap-2 px-2 py-1 rounded ${
-                      isStreaming
-                        ? "opacity-60 cursor-not-allowed"
-                        : "cursor-pointer"
-                    } ${
-                      selectedDoc === doc.file_name
-                        ? "bg-blue-100 text-blue-900"
-                        : !isStreaming
-                          ? "hover:bg-gray-100"
-                          : ""
-                    }`}
-                    onClick={() => {
-                      if (isStreaming) return;
-                      if (editingDocName === doc.file_name) return;
-                      setSelectedDoc((prev) =>
-                        prev === doc.file_name ? null : doc.file_name,
-                      );
-                    }}
-                    onDoubleClick={(e) => {
-                      if (isStreaming) return;
-                      e.stopPropagation();
-                      handleStartRenameDoc(doc.file_name);
-                    }}
-                    title={
-                      isStreaming
-                        ? "Sorgu sürüyor, bekleyin"
-                        : "Çift tıklayarak yeniden adlandır"
-                    }
-                  >
-                    {editingDocName === doc.file_name ? (
-                      <input
-                        autoFocus
-                        type="text"
-                        value={editingDocValue}
-                        onChange={(e) => setEditingDocValue(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleSubmitRenameDoc();
-                          if (e.key === "Escape") handleCancelRenameDoc();
-                        }}
-                        onBlur={handleSubmitRenameDoc}
-                        className="flex-1 border rounded px-1 py-0 text-sm bg-white text-gray-900"
-                      />
-                    ) : (
-                      <span className="truncate">{doc.file_name}</span>
-                    )}
-                    {editingDocName !== doc.file_name && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteDoc(doc.file_name);
-                        }}
-                        disabled={
-                          deletingDoc === doc.file_name || isStreaming
-                        }
-                        className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600 text-xs px-1 disabled:opacity-0"
-                        title="Sil"
-                      >
-                        {deletingDoc === doc.file_name ? "..." : "×"}
-                      </button>
+                  <li key={doc.file_name} className="rounded">
+                    <div
+                      className={`group flex items-center justify-between gap-2 px-2 py-1 rounded ${
+                        isStreaming
+                          ? "opacity-60 cursor-not-allowed"
+                          : "cursor-pointer"
+                      } ${
+                        selectedDoc === doc.file_name
+                          ? "bg-blue-100 text-blue-900"
+                          : !isStreaming
+                            ? "hover:bg-gray-100"
+                            : ""
+                      }`}
+                      onClick={() => {
+                        if (isStreaming) return;
+                        if (editingDocName === doc.file_name) return;
+                        setSelectedDoc((prev) =>
+                          prev === doc.file_name ? null : doc.file_name,
+                        );
+                      }}
+                      onDoubleClick={(e) => {
+                        if (isStreaming) return;
+                        e.stopPropagation();
+                        handleStartRenameDoc(doc.file_name);
+                      }}
+                      title={
+                        isStreaming
+                          ? "Sorgu sürüyor, bekleyin"
+                          : "Çift tıklayarak yeniden adlandır"
+                      }
+                    >
+                      {editingDocName === doc.file_name ? (
+                        <input
+                          autoFocus
+                          type="text"
+                          value={editingDocValue}
+                          onChange={(e) => setEditingDocValue(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSubmitRenameDoc();
+                            if (e.key === "Escape") handleCancelRenameDoc();
+                          }}
+                          onBlur={handleSubmitRenameDoc}
+                          className="flex-1 border rounded px-1 py-0 text-sm bg-white text-gray-900"
+                        />
+                      ) : (
+                        <span className="truncate">{doc.file_name}</span>
+                      )}
+                      {editingDocName !== doc.file_name && (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleStartMoveDoc(doc.file_name);
+                            }}
+                            disabled={isStreaming}
+                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-blue-600 text-xs px-1 disabled:opacity-0"
+                            title="Başka koleksiyona taşı"
+                          >
+                            →
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteDoc(doc.file_name);
+                            }}
+                            disabled={
+                              deletingDoc === doc.file_name || isStreaming
+                            }
+                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600 text-xs px-1 disabled:opacity-0"
+                            title="Sil"
+                          >
+                            {deletingDoc === doc.file_name ? "..." : "×"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {movingDoc === doc.file_name && (
+                      <div className="mt-1 mx-2 mb-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs">
+                        <div className="text-gray-600 mb-1">Şuraya taşı:</div>
+                        {allCollections.filter((c) => c !== collection)
+                          .length === 0 ? (
+                          <div className="text-gray-500 italic">
+                            Başka koleksiyon yok.
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {allCollections
+                              .filter((c) => c !== collection)
+                              .map((c) => (
+                                <button
+                                  key={c}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMoveDoc(doc.file_name, c);
+                                  }}
+                                  className="px-2 py-0.5 border border-gray-300 rounded bg-white hover:bg-blue-50 hover:border-blue-300"
+                                >
+                                  {c}
+                                </button>
+                              ))}
+                          </div>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCancelMoveDoc();
+                          }}
+                          className="mt-1 text-gray-500 hover:text-gray-700"
+                        >
+                          İptal
+                        </button>
+                      </div>
                     )}
                   </li>
                 ))}
