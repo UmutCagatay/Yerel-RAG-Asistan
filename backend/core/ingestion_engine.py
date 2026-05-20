@@ -61,22 +61,23 @@ class IngestionEngine:
         # ── Faz 1: VLM ile parse ─────────────────────────────────────────────
         # VLM optional: yüklenemezse parser görselsiz devam eder.
         # 'with' bloğu None için çalışmaz, bu yüzden manuel try/finally.
-        log.info("Faz 1: VLM yükleniyor...")
         vlm_engine = None
-        try:
-            vlm_engine = VLMEngine()
-        except Exception as e:
-            # WARNING seviyesi — sistem çökmüyor, sadece görseller atlanacak.
-            # Parser vlm_engine=None durumunu zaten handle ediyor.
-            log.warning(
-                f"VLM yüklenemedi, görselsiz devam ediliyor: {e}",
-                exc_info=True,
-            )
+        if use_vlm:
+            log.info("Faz 1: VLM yükleniyor...")
+            try:
+                vlm_engine = VLMEngine()
+            except Exception as e:
+                # WARNING seviyesi: sistem çökmüyor, sadece görseller atlanacak
+                log.warning(
+                    f"VLM yüklenemedi, görselsiz devam ediliyor: {e}",
+                    exc_info=True,
+                )
+        else:
+            log.info("Faz 1: VLM atlandı (kullanıcı toggle ile kapattı).")
 
-        # VLM yükleme bayrağını şimdi yakala. Faz 1 finally bloku vlm_engine'i
-        # sileceği için sonraki return'larda erişemeyiz. Bu bayrak UI'ya
-        # "görseller atlandı" uyarısı göstermek için lazım.
-        vlm_loaded = vlm_engine is not None
+        # VLM yükleme bayrağı. Kullanıcı toggle ile kapatmışsa True döner
+        # (UI yanlış uyarı vermesin diye), yoksa engine'in yüklendiğini gösterir.
+        vlm_loaded = (not use_vlm) or (vlm_engine is not None)
 
         try:
             parser = DocumentParser()

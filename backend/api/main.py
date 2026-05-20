@@ -39,7 +39,17 @@ app = FastAPI(title="Yerel RAG Asistani API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # geliştirmede herkese açık
+    # Sadece Tauri ve Vite dev server origin'lerine izin ver.
+    # Backend zaten 127.0.0.1'de dinliyor (uvicorn default), LAN'a kapalı.
+    # CORS kısıtlaması ek bir kat: başka bir tarayıcı sekmesindeki kötü
+    # site fetch("http://localhost:8000/...") ile veri çekemesin.
+    allow_origins=[
+        "tauri://localhost",        # Tauri v1 prod
+        "http://tauri.localhost",   # Tauri v2 prod
+        "https://tauri.localhost",  # Tauri v2 prod (Windows)
+        "http://localhost:1420",    # Vite dev server
+        "http://127.0.0.1:1420",    # Vite dev server (127 binding)
+    ],
     allow_credentials=True,
     allow_methods=["*"],  # GET, POST, DELETE hepsi
     allow_headers=["*"],
@@ -197,6 +207,7 @@ def delete_documents(body: DeleteDocumentsRequest):
 def add_documents(
     files: list[UploadFile] = File(...),
     decisions: str = Form("{}"),
+    use_vlm: bool = Form(True),
 ):
     """
     PDF yükler. Çakışan dosyalar için frontend, /documents/check'ten
@@ -205,6 +216,9 @@ def add_documents(
     decisions parametresi JSON string olarak gelir, örnek:
         {"test1.pdf": "overwrite", "test2.pdf": "skip"}
     Çakışmayan dosyaları decisions'a yazmaya gerek yok.
+
+    use_vlm: False ise VLM hiç yüklenmez, görsel içerikler atlanır.
+    Hızı önemli olduğundan veya VRAM tasarrufu için kullanıcı kapatabilir.
     """
     if not files:
         raise HTTPException(status_code=400, detail="Dosya gönderilmedi.")
@@ -262,7 +276,11 @@ def add_documents(
             ):
                 decisions_dict[file.filename] = "skip"
 
-        result = db.add_documents(file_paths=saved_paths, on_conflict=decisions_dict)
+        result = db.add_documents(
+            file_paths=saved_paths,
+            on_conflict=decisions_dict,
+            use_vlm=use_vlm,
+        )
 
         # Boyut yüzünden atlananları failed listesine ekle
         result["failed"].extend(too_big)
@@ -344,6 +362,28 @@ def move_document(body: MoveDocumentRequest):
         "target": result["target"],
         "chunks": result.get("chunks", 0),
     }
+
+
+class ReorderDocumentsRequest(BaseModel):
+    """Aktif koleksiyonun yeni doküman sırası."""
+
+    file_names: list[str]
+
+
+@app.post("/documents/reorder")
+def reorder_documents(body: ReorderDocumentsRequest):
+    """
+    Aktif koleksiyonun doküman sırasını verilen listeye göre günceller.
+    Sadece catalog dict sırası değişir; ChromaDB/sections'a dokunulmaz.
+    """
+    result = db.reorder_documents(body.file_names)
+    if not result.get("reordered"):
+        reason = result.get("reason", "Bilinmeyen hata")
+        status = 400
+        if "koleksiyon yok" in reason:
+            status = 404
+        raise HTTPException(status_code=status, detail=reason)
+    return {"reordered": True, "count": result["count"]}
 
 
 class QueryRequest(BaseModel):

@@ -300,10 +300,11 @@ class RetrieverEngine:
                 ss = doc.metadata.get("section_start_index", "?")
                 se = doc.metadata.get("section_end_index", "?")
                 sid = doc.metadata.get("section_id") or "yok"
+                fname = doc.metadata.get("file_name", "?")
                 prev = doc.page_content[:90].replace("\n", " ")
                 marker = "✓" if doc in best_docs else "✗"
                 debug_lines.append(
-                    f"  [{i + 1}]{marker} score={score:+.4f} | "
+                    f"  [{i + 1}]{marker} score={score:+.4f} | file={fname} | "
                     f"{ntype}[{nidx}] | sec=[{ss}-{se}] | section_id:{sid}"
                 )
                 debug_lines.append(f"       {prev}...")
@@ -325,6 +326,7 @@ class RetrieverEngine:
                 nidx = doc.metadata.get("node_index", "?")
                 ss = doc.metadata.get("section_start_index", "?")
                 se = doc.metadata.get("section_end_index", "?")
+                fname = doc.metadata.get("file_name", "?")
                 clen = len(doc.page_content)
                 # Overlap prefix varsa atla — asıl içerikten önizleme göster.
                 # "[Önceki Bölüm Bağlamı: ...]" prefixleri debug'ı yanıltır.
@@ -336,7 +338,7 @@ class RetrieverEngine:
 
                 prev = content_for_preview[:60].replace("\n", " ")
                 debug_lines.append(
-                    f"    {ntype}[{nidx}] | sec=[{ss}-{se}] | "
+                    f"    file={fname} | {ntype}[{nidx}] | sec=[{ss}-{se}] | "
                     f"{clen} karakter | {prev}..."
                 )
             debug_lines.append("═" * 70)

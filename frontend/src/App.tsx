@@ -152,6 +152,9 @@ function App() {
   const [editingDocValue, setEditingDocValue] = useState<string>("");
   // Taşıma menüsü açık olan doküman — li'nin altına hedef listesi açılır
   const [movingDoc, setMovingDoc] = useState<string | null>(null);
+  // VLM (görsel okuma) toggle — default açık.
+  // Kapalıyken upload hızlı (~5-10sn VLM yükleme + görsel başı ~10sn atlanır).
+  const [useVlm, setUseVlm] = useState<boolean>(true);
 
   // Koleksiyon yeniden adlandırma state'leri
   const [editingColName, setEditingColName] = useState<string | null>(null);
@@ -545,6 +548,40 @@ function App() {
     setMovingDoc(null);
   }
 
+  // Doküman sıralama — frontend liste swap'i + backend'e tüm sıra gönderim.
+  // Optimistic update: önce UI'da swap, sonra backend'e gönder. Hata olursa
+  // eski sıraya rollback.
+  async function handleReorderDoc(index: number, direction: -1 | 1) {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= docs.length) return;
+
+    const previousDocs = docs;
+    const newDocs = [...docs];
+    [newDocs[index], newDocs[newIndex]] = [newDocs[newIndex], newDocs[index]];
+    setDocs(newDocs);
+
+    try {
+      const res = await fetch(`${API}/documents/reorder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_names: newDocs.map((d) => d.file_name),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.detail || `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      // Rollback eski sıraya
+      setDocs(previousDocs);
+      setToast({
+        type: "error",
+        message: `Sıralama güncellenemedi: ${err instanceof Error ? err.message : "bilinmeyen"}`,
+      });
+    }
+  }
+
   async function handleMoveDoc(fileName: string, target: string) {
     setMovingDoc(null);
     try {
@@ -866,6 +903,7 @@ function App() {
         formData.append("files", file);
       }
       formData.append("decisions", JSON.stringify(decisionsMap));
+      formData.append("use_vlm", String(useVlm));
 
       const response = await fetch(`${API}/documents`, {
         method: "POST",
@@ -897,9 +935,10 @@ function App() {
         }
       }
 
-      // VLM yüklenemediyse uyarı — görsel içerik atlanmış olur,
-      // kullanıcı fark etsin
-      if (result.vlm_loaded === false && successCount > 0) {
+      // VLM yüklenemediyse uyarı — görsel içerik atlanmış olur.
+      // Sadece kullanıcı VLM'i açmış ama yüklenememişse uyarı göster.
+      // Kullanıcı toggle'ı zaten kapatmışsa uyarı yanlış olur.
+      if (useVlm && result.vlm_loaded === false && successCount > 0) {
         lines.push(
           "⚠ Görsel modeli yüklenemedi — tablo/şema içerikleri atlandı.",
         );
@@ -909,7 +948,7 @@ function App() {
       const toastType: ToastMsg["type"] =
         failedCount > 0
           ? "error"
-          : result.vlm_loaded === false
+          : useVlm && result.vlm_loaded === false
             ? "info"
             : "success";
 
@@ -1084,6 +1123,19 @@ function App() {
                 {isUploading ? "..." : "+ Ekle"}
               </button>
             </div>
+            <label
+              className="flex items-center gap-1.5 text-xs text-gray-600 mb-2 cursor-pointer hover:text-gray-800 select-none"
+              title="Açık: tablo/şemalar da işlenir (yavaş). Kapalı: sadece metin (hızlı)."
+            >
+              <input
+                type="checkbox"
+                checked={useVlm}
+                onChange={(e) => setUseVlm(e.target.checked)}
+                disabled={isUploading}
+                className="cursor-pointer disabled:cursor-not-allowed"
+              />
+              <span>Görsel okuma</span>
+            </label>
             <input
               ref={fileInputRef}
               type="file"
@@ -1101,7 +1153,7 @@ function App() {
             )}
             {!loading && !error && docs.length > 0 && (
               <ul className="space-y-1 text-sm">
-                {docs.map((doc) => (
+                {docs.map((doc, index) => (
                   <li key={doc.file_name} className="rounded">
                     <div
                       className={`group flex items-center justify-between gap-2 px-2 py-1 rounded ${
@@ -1152,6 +1204,30 @@ function App() {
                       )}
                       {editingDocName !== doc.file_name && (
                         <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleReorderDoc(index, -1);
+                            }}
+                            disabled={index === 0 || isStreaming}
+                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-800 text-xs px-1 disabled:opacity-0"
+                            title="Yukarı taşı"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleReorderDoc(index, 1);
+                            }}
+                            disabled={
+                              index === docs.length - 1 || isStreaming
+                            }
+                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-800 text-xs px-1 disabled:opacity-0"
+                            title="Aşağı taşı"
+                          >
+                            ↓
+                          </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();

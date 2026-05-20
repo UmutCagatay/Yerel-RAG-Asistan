@@ -368,6 +368,7 @@ class DBManager:
         file_paths: list[str],
         collection: str | None = None,
         on_conflict: dict[str, str] | str = "ask",
+        use_vlm: bool = True,
     ) -> dict:
         """
         Çoklu PDF ekleme. IngestionEngine'i çağırır, catalog'u günceller.
@@ -439,7 +440,11 @@ class DBManager:
 
         # ── IngestionEngine'i çalıştır ──
         engine = IngestionEngine(persist_dir=self.persist_dir)
-        result = engine.run(file_paths=to_process, collection_name=collection)
+        result = engine.run(
+            file_paths=to_process,
+            collection_name=collection,
+            use_vlm=use_vlm,
+        )
 
         # ── Catalog güncelle ──
         catalog = self._load_catalog()  # yeniden oku (delete_documents yazmış olabilir)
@@ -800,6 +805,63 @@ class DBManager:
             "target": target_collection,
             "chunks": len(ids),
         }
+
+    def reorder_documents(
+        self,
+        file_names_in_order: list[str],
+        collection: str | None = None,
+    ) -> dict:
+        """
+        Bir koleksiyondaki dokümanların sırasını verilen listeye göre
+        yeniden düzenler. Catalog dict'i Python 3.7+ insertion-order'a sahip;
+        dict'i yeni sırayla yeniden inşa edip yazıyoruz.
+
+        ChromaDB ve sections.json'a dokunulmaz — sıralama sadece UI için
+        catalog metadata'ı üzerinden yürütülüyor.
+
+        Validation: gelen liste koleksiyonun tüm dokümanlarını içermeli
+        (ne eksik ne fazla). Aksi takdirde reddedilir.
+
+        Dönüş:
+            {"reordered": True, "count": int}
+            {"reordered": False, "reason": str}
+        """
+        collection = collection or self.active_collection
+        catalog = self._load_catalog()
+
+        if collection not in catalog["collections"]:
+            return {
+                "reordered": False,
+                "reason": f"'{collection}' koleksiyonu yok.",
+            }
+
+        docs = catalog["collections"][collection]["documents"]
+        current = set(docs.keys())
+        provided = set(file_names_in_order)
+
+        if current != provided:
+            missing = current - provided
+            extra = provided - current
+            return {
+                "reordered": False,
+                "reason": (
+                    f"Liste tutarsız. "
+                    f"Eksik: {sorted(missing)}, Fazla: {sorted(extra)}"
+                ),
+            }
+
+        # Yeni sırayla dict'i yeniden inşa et. Mevcut info'lar korunur,
+        # sadece anahtar sırası değişir.
+        catalog["collections"][collection]["documents"] = {
+            name: docs[name] for name in file_names_in_order
+        }
+        self._save_catalog(catalog)
+
+        log.info(
+            f"Doküman sırası güncellendi (koleksiyon: '{collection}', "
+            f"{len(file_names_in_order)} doküman)."
+        )
+        return {"reordered": True, "count": len(file_names_in_order)}
 
     # ── Yardımcılar ──────────────────────────────────────────────────────────
 
