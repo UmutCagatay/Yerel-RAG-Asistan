@@ -5,10 +5,12 @@ import shutil
 import tempfile
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from core.config import AppConfig
 from core.chat_manager import ChatManager
 from core.db_manager import DBManager
+from core.ingest_estimator import estimate_total_seconds
 from core.logger import setup_logging
 from core.query_engine import QueryEngine
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -82,10 +84,12 @@ query_lock = threading.Lock()
 @app.get("/health")
 def health():
     """Backend ayakta mı sorusuna cevap. Tauri startup'ında ping için.
-    Yan bilgi: dosya boyut limiti (MB) — frontend ön kontrol için."""
+    Yan bilgi: dosya boyut limiti (MB) + ingest tahmini bayrağı — frontend
+    bayrağa göre estimate adımını atlar veya çalıştırır."""
     return {
         "status": "ok",
         "max_file_size_mb": AppConfig.MAX_FILE_SIZE_MB,
+        "ingest_estimate_enabled": AppConfig.INGEST_ESTIMATE_ENABLED,
     }
 
 
@@ -210,6 +214,76 @@ def delete_documents(body: DeleteDocumentsRequest):
     # detayı body'de veriyoruz; frontend hem 'deleted' hem 'failed'
     # listesini görüp UI'da gösterebilir.
     return result
+
+
+@app.post("/documents/estimate")
+def estimate_documents(
+    files: list[UploadFile] = File(...),
+    use_vlm: bool = Form(True),
+):
+    """
+    Yüklenecek dosyalar için tahmini ingest süresini hesaplar.
+
+    Dosyaları geçici dizine yazıp PyMuPDF ile sayfa+görsel sayılar, sonra
+    AppConfig.INGEST_* sabitleriyle toplam süreyi tahmin eder. Dosyalar
+    işlem sonunda silinir; frontend gerçek upload için aynı dosyaları
+    /documents'a tekrar gönderir.
+
+    Bayrak (AppConfig.INGEST_ESTIMATE_ENABLED) False ise 404 döner;
+    frontend bu durumda estimate adımını atlayıp direkt upload eder.
+    """
+    if not AppConfig.INGEST_ESTIMATE_ENABLED:
+        raise HTTPException(
+            status_code=404,
+            detail="Ingest tahmini özelliği şu anda devre dışı.",
+        )
+
+    if not files:
+        raise HTTPException(status_code=400, detail="Dosya gönderilmedi.")
+
+    # Boyut limiti kontrolü — add_documents ile aynı kural; tahmin yapamadığımız
+    # dosyalar 'rejected' listesinde bilgi olarak döner.
+    tmp_dir = tempfile.mkdtemp(prefix="rag_estimate_")
+    try:
+        file_tuples: list[tuple[str, Path]] = []
+        rejected: list[dict] = []
+
+        for file in files:
+            file.file.seek(0, 2)
+            size_bytes = file.file.tell()
+            file.file.seek(0)
+            size_mb = size_bytes / (1024 * 1024)
+
+            if size_mb > AppConfig.MAX_FILE_SIZE_MB:
+                rejected.append({
+                    "name": file.filename,
+                    "reason": (
+                        f"Boyut limiti aşıldı ({size_mb:.1f} MB > "
+                        f"{AppConfig.MAX_FILE_SIZE_MB} MB)"
+                    ),
+                })
+                continue
+
+            dest = Path(tmp_dir) / file.filename
+            with open(dest, "wb") as f:
+                shutil.copyfileobj(file.file, f)
+            file_tuples.append((file.filename, dest))
+
+        if not file_tuples:
+            return {
+                "files": [],
+                "total_pages": 0,
+                "total_images": 0,
+                "total_seconds": 0.0,
+                "use_vlm": use_vlm,
+                "rejected": rejected,
+            }
+
+        result = estimate_total_seconds(file_tuples, use_vlm=use_vlm)
+        result["rejected"] = rejected
+        return result
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @app.post("/documents")
