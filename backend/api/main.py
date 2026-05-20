@@ -43,13 +43,22 @@ app.add_middleware(
     # Backend zaten 127.0.0.1'de dinliyor (uvicorn default), LAN'a kapalı.
     # CORS kısıtlaması ek bir kat: başka bir tarayıcı sekmesindeki kötü
     # site fetch("http://localhost:8000/...") ile veri çekemesin.
+    #
+    # Regex daha esnek: tauri:// + tauri.localhost (her sema) + localhost +
+    # 127.0.0.1 (her port). Liste de geri çekilme için tutuluyor.
     allow_origins=[
         "tauri://localhost",        # Tauri v1 prod
-        "http://tauri.localhost",   # Tauri v2 prod
+        "http://tauri.localhost",   # Tauri v2 prod (Linux/macOS)
         "https://tauri.localhost",  # Tauri v2 prod (Windows)
         "http://localhost:1420",    # Vite dev server
         "http://127.0.0.1:1420",    # Vite dev server (127 binding)
     ],
+    allow_origin_regex=(
+        r"^(tauri://localhost"
+        r"|https?://tauri\.localhost"
+        r"|https?://localhost(:\d+)?"
+        r"|https?://127\.0\.0\.1(:\d+)?)$"
+    ),
     allow_credentials=True,
     allow_methods=["*"],  # GET, POST, DELETE hepsi
     allow_headers=["*"],

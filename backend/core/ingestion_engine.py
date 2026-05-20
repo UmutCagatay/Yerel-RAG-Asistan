@@ -39,6 +39,7 @@ class IngestionEngine:
         self,
         file_paths: list[str],
         collection_name: str = "default",
+        use_vlm: bool = True,
     ) -> dict:
         """
         Dönüş:
@@ -46,6 +47,9 @@ class IngestionEngine:
                 "success": [{"file_name": "...", "chunk_count": N, "section_count": M}, ...],
                 "failed":  [{"file_name": "...", "reason": "..."}, ...]
             }
+
+        use_vlm=False ise VLM hiç yüklenmez (toggle off). Frontend kendi
+        useVlm state'ini bildiği için uyarıları ona göre filtreler.
         """
         if not file_paths:
             log.warning("İşlenecek dosya yok.")
