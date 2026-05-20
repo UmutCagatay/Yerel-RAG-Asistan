@@ -148,6 +148,12 @@ function App() {
   >({});
 
   const [deletingDoc, setDeletingDoc] = useState<string | null>(null);
+  const [editingDocName, setEditingDocName] = useState<string | null>(null);
+  const [editingDocValue, setEditingDocValue] = useState<string>("");
+
+  // Koleksiyon yeniden adlandırma state'leri
+  const [editingColName, setEditingColName] = useState<string | null>(null);
+  const [editingColValue, setEditingColValue] = useState<string>("");
 
   const [allCollections, setAllCollections] = useState<string[]>([]);
   const [showCollectionMenu, setShowCollectionMenu] = useState<boolean>(false);
@@ -211,6 +217,17 @@ function App() {
     }
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [showCollectionMenu]);
+
+  // Dropdown her kapandığında rename edit modunu da temizle.
+  // Aksi takdirde kullanıcı edit moduna geçip dışarı tıklaç dropdown'ı
+  // tekrar açtığında hala input ile karşılaşır (input DOM'dan kalktığı için
+  // onBlur tetiklenmiyor).
+  useEffect(() => {
+    if (!showCollectionMenu) {
+      setEditingColName(null);
+      setEditingColValue("");
+    }
   }, [showCollectionMenu]);
 
   // Toast'u belirli süre sonra otomatik kapat. Önemli mesajlar (error/info)
@@ -456,6 +473,65 @@ function App() {
     }
   }
 
+  // Doküman yeniden adlandırma — sohbet rename ile aynı pattern.
+  // Chunk'lar ve embedding'ler yerinde kalır, sadece metadata güncellenir.
+  function handleStartRenameDoc(fileName: string) {
+    setEditingDocName(fileName);
+    setEditingDocValue(fileName);
+  }
+
+  async function handleSubmitRenameDoc() {
+    if (!editingDocName) return;
+    const oldName = editingDocName;
+    const newName = editingDocValue.trim();
+    setEditingDocName(null);
+    setEditingDocValue("");
+
+    if (!newName || newName === oldName) return;
+
+    try {
+      const res = await fetch(`${API}/documents/rename`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ old_name: oldName, new_name: newName }),
+      });
+
+      if (res.status === 409) {
+        const err = await res.json().catch(() => null);
+        setToast({
+          type: "error",
+          message: err?.detail || `'${newName}' zaten var.`,
+        });
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.detail || `HTTP ${res.status}`);
+      }
+
+      await refreshDocs();
+      // Seçili doküman bu ise yeni isme güncelle ki seimme bozulmasın.
+      // Eski mesajlardaki scope.file_name dokunulmaz (geriye dönük snapshot).
+      if (selectedDoc === oldName) {
+        setSelectedDoc(newName);
+      }
+      setToast({
+        type: "success",
+        message: `'${oldName}' -> '${newName}'`,
+      });
+    } catch (err) {
+      setToast({
+        type: "error",
+        message: `Yeniden adlandırılamadı: ${err instanceof Error ? err.message : "bilinmeyen"}`,
+      });
+    }
+  }
+
+  function handleCancelRenameDoc() {
+    setEditingDocName(null);
+    setEditingDocValue("");
+  }
+
   async function handleDeleteDoc(fileName: string) {
     if (!confirm(`'${fileName}' silinecek. Emin misin?`)) return;
 
@@ -585,6 +661,78 @@ function App() {
   }
 
   // ── Yükleme işlemleri ───────────────────────────────────────────────────
+
+  // Koleksiyon yeniden adlandırma — dropdown li'lerinde ✏ butonuyla başlatılır.
+  // Dropdown'ın dblclick ile çatışmasını önlemek için ayrı buton tercih edildi
+  // (single click handleSwitchCollection'ı tetikler ve menüyü kapatır).
+  // 'default' yeniden adlandırılamaz — backend de reddedecek ama UI'da
+  // baştan buton gizli olmalı.
+  function handleStartRenameCol(name: string) {
+    if (name === "default") return;
+    setEditingColName(name);
+    setEditingColValue(name);
+  }
+
+  async function handleSubmitRenameCol() {
+    if (!editingColName) return;
+    const oldName = editingColName;
+    const newName = editingColValue.trim();
+    setEditingColName(null);
+    setEditingColValue("");
+
+    if (!newName || newName === oldName) return;
+
+    try {
+      const res = await fetch(
+        `${API}/collections/${encodeURIComponent(oldName)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ new_name: newName }),
+        },
+      );
+
+      if (res.status === 409) {
+        const err = await res.json().catch(() => null);
+        setToast({
+          type: "error",
+          message: err?.detail || `'${newName}' zaten var.`,
+        });
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.detail || `HTTP ${res.status}`);
+      }
+
+      // Listede yeni isime güncelle
+      setAllCollections((prev) =>
+        prev.map((c) => (c === oldName ? newName : c)),
+      );
+      // Aktif koleksiyon yeniden adlandırıldıysa state'i güncelle.
+      // Backend zaten sections + chunks metadata + sohbetler hepsini
+      // senkron güncelledi; collection state değişince useEffect chats'i
+      // yenileyecek.
+      if (collection === oldName) {
+        setCollection(newName);
+      }
+
+      setToast({
+        type: "success",
+        message: `Koleksiyon: '${oldName}' -> '${newName}'`,
+      });
+    } catch (err) {
+      setToast({
+        type: "error",
+        message: `Yeniden adlandırılamadı: ${err instanceof Error ? err.message : "bilinmeyen"}`,
+      });
+    }
+  }
+
+  function handleCancelRenameCol() {
+    setEditingColName(null);
+    setEditingColValue("");
+  }
 
   async function handleUpload(files: FileList) {
     if (files.length === 0) return;
@@ -780,23 +928,57 @@ function App() {
                 {allCollections.map((name) => (
                   <li
                     key={name}
-                    className={`group flex items-center justify-between gap-2 px-3 py-1 text-sm cursor-pointer hover:bg-gray-100 ${
+                    className={`group flex items-center justify-between gap-2 px-3 py-1 text-sm hover:bg-gray-100 ${
+                      editingColName === name ? "" : "cursor-pointer"
+                    } ${
                       name === collection ? "font-medium text-blue-600" : ""
                     }`}
-                    onClick={() => handleSwitchCollection(name)}
+                    onClick={() => {
+                      if (editingColName === name) return;
+                      handleSwitchCollection(name);
+                    }}
                   >
-                    <span className="truncate">{name}</span>
-                    {name !== "default" && (
-                      <button
-                        onClick={(e) => {
+                    {editingColName === name ? (
+                      <input
+                        autoFocus
+                        type="text"
+                        value={editingColValue}
+                        onChange={(e) => setEditingColValue(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
                           e.stopPropagation();
-                          handleDeleteCollection(name);
+                          if (e.key === "Enter") handleSubmitRenameCol();
+                          if (e.key === "Escape") handleCancelRenameCol();
                         }}
-                        className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600 text-xs px-1"
-                        title="Koleksiyonu sil"
-                      >
-                        ×
-                      </button>
+                        onBlur={handleSubmitRenameCol}
+                        className="flex-1 border rounded px-1 py-0 text-sm bg-white text-gray-900"
+                      />
+                    ) : (
+                      <span className="truncate flex-1">{name}</span>
+                    )}
+                    {editingColName !== name && name !== "default" && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartRenameCol(name);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-blue-600 text-xs px-1"
+                          title="Yeniden adlandır"
+                        >
+                          ✏
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCollection(name);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600 text-xs px-1"
+                          title="Koleksiyonu sil"
+                        >
+                          ×
+                        </button>
+                      </div>
                     )}
                   </li>
                 ))}
@@ -836,8 +1018,11 @@ function App() {
               <h2 className="font-semibold">Dokümanlar</h2>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-                className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 disabled:bg-gray-300"
+                disabled={isUploading || isStreaming}
+                className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                title={
+                  isStreaming ? "Sorgu sürüyor, bekleyin" : "Doküman ekle"
+                }
               >
                 {isUploading ? "..." : "+ Ekle"}
               </button>
@@ -862,29 +1047,67 @@ function App() {
                 {docs.map((doc) => (
                   <li
                     key={doc.file_name}
-                    className={`group flex items-center justify-between gap-2 px-2 py-1 rounded cursor-pointer ${
+                    className={`group flex items-center justify-between gap-2 px-2 py-1 rounded ${
+                      isStreaming
+                        ? "opacity-60 cursor-not-allowed"
+                        : "cursor-pointer"
+                    } ${
                       selectedDoc === doc.file_name
                         ? "bg-blue-100 text-blue-900"
-                        : "hover:bg-gray-100"
+                        : !isStreaming
+                          ? "hover:bg-gray-100"
+                          : ""
                     }`}
-                    onClick={() =>
+                    onClick={() => {
+                      if (isStreaming) return;
+                      if (editingDocName === doc.file_name) return;
                       setSelectedDoc((prev) =>
                         prev === doc.file_name ? null : doc.file_name,
-                      )
+                      );
+                    }}
+                    onDoubleClick={(e) => {
+                      if (isStreaming) return;
+                      e.stopPropagation();
+                      handleStartRenameDoc(doc.file_name);
+                    }}
+                    title={
+                      isStreaming
+                        ? "Sorgu sürüyor, bekleyin"
+                        : "Çift tıklayarak yeniden adlandır"
                     }
                   >
-                    <span className="truncate">{doc.file_name}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteDoc(doc.file_name);
-                      }}
-                      disabled={deletingDoc === doc.file_name}
-                      className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600 text-xs px-1 disabled:opacity-50"
-                      title="Sil"
-                    >
-                      {deletingDoc === doc.file_name ? "..." : "×"}
-                    </button>
+                    {editingDocName === doc.file_name ? (
+                      <input
+                        autoFocus
+                        type="text"
+                        value={editingDocValue}
+                        onChange={(e) => setEditingDocValue(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSubmitRenameDoc();
+                          if (e.key === "Escape") handleCancelRenameDoc();
+                        }}
+                        onBlur={handleSubmitRenameDoc}
+                        className="flex-1 border rounded px-1 py-0 text-sm bg-white text-gray-900"
+                      />
+                    ) : (
+                      <span className="truncate">{doc.file_name}</span>
+                    )}
+                    {editingDocName !== doc.file_name && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteDoc(doc.file_name);
+                        }}
+                        disabled={
+                          deletingDoc === doc.file_name || isStreaming
+                        }
+                        className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600 text-xs px-1 disabled:opacity-0"
+                        title="Sil"
+                      >
+                        {deletingDoc === doc.file_name ? "..." : "×"}
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>

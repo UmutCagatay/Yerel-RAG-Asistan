@@ -5,35 +5,10 @@ import re
 
 import chromadb
 from core.config import AppConfig
+from core.file_utils import atomic_write_json
 from core.ingestion_engine import IngestionEngine
 
 log = logging.getLogger(__name__)
-
-
-def _atomic_write_json(path: str, data: dict) -> None:
-    """
-    JSON'u atomik olarak yazar: önce .tmp dosyasına yaz + fsync + os.replace.
-
-    Yazma yarıda kalırsa (elektrik, kill, crash) asıl dosya korunur; rename
-    işletim sistemi düzeyinde atomik olduğu için ya eski ya yeni hâli görünür,
-    asla yarım yazılmış bozuk JSON kalmaz. catalog ve sections gibi kritik
-    dosyalar için zorunlu — onlar bozulursa backend hiç açılmaz.
-    """
-    tmp_path = path + ".tmp"
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())  # Diske git, OS cache'inde kalma
-        os.replace(tmp_path, path)  # Atomik rename — Windows ve Unix'te
-    except Exception:
-        # Yarım kalan tmp dosyasını temizle, yoksa diskte birikir
-        if os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-        raise
 
 
 class DBManager:
@@ -106,7 +81,7 @@ class DBManager:
         Atomik yazım: çökme/elektrik kesintisinde dosya bozulmaz.
         """
         try:
-            _atomic_write_json(self.catalog_path, catalog)
+            atomic_write_json(self.catalog_path, catalog)
             log.debug(f"Catalog kaydedildi: {self.catalog_path}")
         except OSError as e:
             log.error(f"Catalog dosyası yazılamadı: {e}", exc_info=True)
@@ -181,6 +156,174 @@ class DBManager:
         log.info("Segment klasörleri programı yeniden başlattığında temizlenecek.")
         return True
 
+    def rename_collection(
+        self,
+        old_name: str,
+        new_name: str,
+        chat_manager=None,
+    ) -> dict:
+        """
+        Bir koleksiyonu yeniden adlandırır. Atomik olmayan çok-fazlı işlem,
+        her faz log'a yazılır.
+
+        Fazlar:
+            1) ChromaDB collection.modify(name=new_name) + chunks
+               metadata'larındaki collection_name update
+            2) sections.json collection_name güncelle
+            3) Catalog anahtar rename
+            4) Aktif koleksiyon ise self.active_collection güncelle
+            5) ChatManager varsa sohbetlerin collection field update
+
+        Kurallar:
+            - 'default' yeniden adlandırılamaz
+            - new_name ChromaDB pattern'ine uymalı
+            - new_name zaten varsa çakışma
+
+        Dönüş:
+            {"renamed": True, "new_name": str, "chats_updated": int}
+            {"renamed": False, "reason": str}
+        """
+        old_name = (old_name or "").strip()
+        new_name = (new_name or "").strip()
+
+        if not old_name or not new_name:
+            return {"renamed": False, "reason": "İsimler boş olamaz."}
+
+        if old_name == new_name:
+            return {"renamed": True, "new_name": new_name, "chats_updated": 0}
+
+        if old_name == self.DEFAULT_COLLECTION:
+            return {
+                "renamed": False,
+                "reason": f"'{self.DEFAULT_COLLECTION}' yeniden adlandırılamaz.",
+            }
+
+        if not self.COLLECTION_NAME_PATTERN.match(new_name):
+            return {
+                "renamed": False,
+                "reason": (
+                    "Geçersiz koleksiyon adı. "
+                    "3-50 karakter, harf/rakam/._-, başı ve sonu alfanumerik olmalı."
+                ),
+            }
+
+        catalog = self._load_catalog()
+
+        if old_name not in catalog["collections"]:
+            return {
+                "renamed": False,
+                "reason": f"'{old_name}' adında koleksiyon yok.",
+            }
+
+        if new_name in catalog["collections"]:
+            return {
+                "renamed": False,
+                "reason": f"'{new_name}' zaten var, çakışma.",
+            }
+
+        log.info(
+            f"Koleksiyon yeniden adlandırılıyor: '{old_name}' -> '{new_name}'"
+        )
+
+        # 1) ChromaDB collection rename + chunks metadata update
+        # Önce collection adını değiştir, sonra yeni isimle alıp chunks
+        # metadata'larındaki collection_name'i güncelle.
+        try:
+            chroma_col = self.chroma_client.get_collection(old_name)
+            chroma_col.modify(name=new_name)
+            log.debug(f"ChromaDB collection rename başarılı: '{new_name}'")
+
+            # Yeni isimle tekrar al — referans davranışı garantisiz, defansif
+            chroma_col = self.chroma_client.get_collection(new_name)
+            result = chroma_col.get(include=["metadatas"])
+            ids = result.get("ids", []) or []
+            metadatas = result.get("metadatas", []) or []
+
+            if ids:
+                updated_metas = [
+                    {**(md or {}), "collection_name": new_name}
+                    for md in metadatas
+                ]
+                chroma_col.update(ids=ids, metadatas=updated_metas)
+                log.info(
+                    f"{len(ids)} chunk için collection_name metadata güncellendi."
+                )
+        except Exception as e:
+            log.error(
+                f"ChromaDB koleksiyon güncellemesi başarısız: {e}",
+                exc_info=True,
+            )
+            return {"renamed": False, "reason": f"ChromaDB hatası: {e}"}
+
+        # 2) sections.json collection_name update
+        self._rename_sections_collection(old_name, new_name)
+
+        # 3) Catalog anahtar rename
+        catalog["collections"][new_name] = catalog["collections"].pop(old_name)
+        self._save_catalog(catalog)
+
+        # 4) Aktif koleksiyon ise state güncelle
+        if self.active_collection == old_name:
+            self.active_collection = new_name
+            log.info(f"Aktif koleksiyon da yeniden adlandırıldı: '{new_name}'")
+
+        # 5) Sohbetlerin collection field update (ChatManager varsa)
+        chats_updated = 0
+        if chat_manager is not None:
+            try:
+                chats_updated = chat_manager.rename_collection_in_chats(
+                    old_name, new_name
+                )
+            except Exception as e:
+                # Sohbet güncellemesi non-fatal — ana operasyon başarılı
+                log.warning(
+                    f"Sohbet güncellemesi sırasında hata: {e}",
+                    exc_info=True,
+                )
+
+        log.info(
+            f"Koleksiyon yeniden adlandırma tamamlandı: "
+            f"'{old_name}' -> '{new_name}', {chats_updated} sohbet güncellendi."
+        )
+        return {
+            "renamed": True,
+            "new_name": new_name,
+            "chats_updated": chats_updated,
+        }
+
+    def _rename_sections_collection(
+        self, old_name: str, new_name: str
+    ) -> None:
+        """sections.json'da bir koleksiyon adının tüm geçişlerini günceller."""
+        if not os.path.exists(self.sections_path):
+            return
+
+        try:
+            with open(self.sections_path, "r", encoding="utf-8") as f:
+                sections = json.load(f)
+        except Exception as e:
+            log.error(f"sections.json okunamadı: {e}", exc_info=True)
+            return
+
+        changed = 0
+        for data in sections.values():
+            md = data.get("metadata", {})
+            if md.get("collection_name") == old_name:
+                md["collection_name"] = new_name
+                changed += 1
+
+        if changed == 0:
+            return
+
+        try:
+            atomic_write_json(self.sections_path, sections)
+            log.debug(
+                f"{changed} section collection_name güncellendi: "
+                f"'{old_name}' -> '{new_name}'"
+            )
+        except Exception as e:
+            log.error(f"sections.json yazılamadı: {e}", exc_info=True)
+
     def set_active_collection(self, name: str) -> bool:
         """Aktif koleksiyonu değiştirir. Hedef koleksiyon var olmak zorunda."""
         catalog = self._load_catalog()
@@ -217,7 +360,7 @@ class DBManager:
         removed = before - len(filtered)
 
         try:
-            _atomic_write_json(self.sections_path, filtered)
+            atomic_write_json(self.sections_path, filtered)
             log.debug(
                 f"sections.json'dan {removed} section silindi "
                 f"(koleksiyon: {collection_name})"
@@ -412,6 +555,99 @@ class DBManager:
 
         return {"deleted": deleted, "failed": failed}
 
+    def rename_document(
+        self,
+        old_name: str,
+        new_name: str,
+        collection: str | None = None,
+    ) -> dict:
+        """
+        Bir dokümanı yeniden adlandırır. Chunk'lar ve embedding'ler yerinde
+        kalır — sadece metadata'daki file_name değişir, sections.json'da
+        ilgili kayıtlar güncellenir ve catalog'da anahtar değişir.
+
+        Embedding hesaplaması yok, bu yüzden hızlı ve risksiz.
+
+        Dönüş:
+            {"renamed": True, "new_name": "..."} başarılı
+            {"renamed": False, "reason": "..."} başarısız
+        """
+        old_name = (old_name or "").strip()
+        new_name = (new_name or "").strip()
+
+        if not old_name or not new_name:
+            return {"renamed": False, "reason": "İsimler boş olamaz."}
+
+        if old_name == new_name:
+            # No-op — başarılı say
+            return {"renamed": True, "new_name": new_name}
+
+        collection = collection or self.active_collection
+        catalog = self._load_catalog()
+
+        if collection not in catalog["collections"]:
+            return {"renamed": False, "reason": f"'{collection}' koleksiyonu yok."}
+
+        docs = catalog["collections"][collection]["documents"]
+
+        if old_name not in docs:
+            return {
+                "renamed": False,
+                "reason": f"'{old_name}' '{collection}' içinde yok.",
+            }
+
+        if new_name in docs:
+            return {
+                "renamed": False,
+                "reason": f"'{new_name}' zaten var, çakışma.",
+            }
+
+        log.info(
+            f"Doküman yeniden adlandırılıyor: '{old_name}' → '{new_name}' "
+            f"(koleksiyon: '{collection}')"
+        )
+
+        # 1) ChromaDB chunk metadata update
+        # Embedding'ler yerinde kalır, sadece metadata.file_name değişir.
+        # ChromaDB update(ids=..., metadatas=...) ile yapılır.
+        try:
+            chroma_col = self.chroma_client.get_or_create_collection(collection)
+            result = chroma_col.get(
+                where={"file_name": old_name},
+                include=["metadatas"],
+            )
+            ids = result.get("ids", []) or []
+            old_metas = result.get("metadatas", []) or []
+
+            if ids:
+                new_metas = [
+                    {**(md or {}), "file_name": new_name} for md in old_metas
+                ]
+                chroma_col.update(ids=ids, metadatas=new_metas)
+                log.info(f"{len(ids)} chunk metadata güncellendi.")
+            else:
+                log.warning(
+                    f"'{old_name}' için ChromaDB'de chunk bulunamadı — "
+                    f"yine de catalog/sections güncellenecek."
+                )
+        except Exception as e:
+            log.error(
+                f"ChromaDB metadata güncellenemedi: {e}", exc_info=True
+            )
+            return {"renamed": False, "reason": f"ChromaDB hatası: {e}"}
+
+        # 2) sections.json file_name update
+        self._rename_sections_document(old_name, new_name, collection)
+
+        # 3) Catalog anahtar rename
+        docs[new_name] = docs.pop(old_name)
+        self._save_catalog(catalog)
+
+        log.info(
+            f"Yeniden adlandırma tamamlandı: '{old_name}' → '{new_name}'"
+        )
+        return {"renamed": True, "new_name": new_name}
+
     # ── Yardımcılar ──────────────────────────────────────────────────────────
 
     def _delete_sections_by_document(
@@ -444,10 +680,55 @@ class DBManager:
         removed = before - len(filtered)
 
         try:
-            _atomic_write_json(self.sections_path, filtered)
+            atomic_write_json(self.sections_path, filtered)
             log.debug(
                 f"sections.json'dan {removed} section silindi "
                 f"(doküman: {file_name}, koleksiyon: {collection_name})"
+            )
+        except Exception as e:
+            log.error(f"sections.json yazılamadı: {e}", exc_info=True)
+
+    def _rename_sections_document(
+        self,
+        old_name: str,
+        new_name: str,
+        collection_name: str,
+    ) -> None:
+        """
+        sections.json'da bir (doküman + koleksiyon) kombinasyonunun
+        tüm section kayıtlarında file_name'i günceller. Atomik yazım.
+        """
+        if not os.path.exists(self.sections_path):
+            return
+
+        try:
+            with open(self.sections_path, "r", encoding="utf-8") as f:
+                sections = json.load(f)
+        except Exception as e:
+            log.error(f"sections.json okunamadı: {e}", exc_info=True)
+            return
+
+        changed = 0
+        for data in sections.values():
+            md = data.get("metadata", {})
+            if (
+                md.get("file_name") == old_name
+                and md.get("collection_name") == collection_name
+            ):
+                md["file_name"] = new_name
+                changed += 1
+
+        if changed == 0:
+            log.debug(
+                f"sections.json'da '{old_name}' için güncellenecek kayıt yok."
+            )
+            return
+
+        try:
+            atomic_write_json(self.sections_path, sections)
+            log.debug(
+                f"{changed} section file_name güncellendi "
+                f"(doküman: '{old_name}' → '{new_name}', koleksiyon: '{collection_name}')"
             )
         except Exception as e:
             log.error(f"sections.json yazılamadı: {e}", exc_info=True)

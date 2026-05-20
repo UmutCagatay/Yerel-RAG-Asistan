@@ -6,30 +6,9 @@ from datetime import datetime
 from typing import Optional
 
 from core.config import AppConfig
+from core.file_utils import atomic_write_json
 
 log = logging.getLogger(__name__)
-
-
-def _atomic_write_json(path: str, data: dict) -> None:
-    """
-    JSON'u atomik yazar: .tmp + fsync + os.replace.
-    DBManager ile aynı pattern; çökme/elektrik kesintisinde sohbet dosyası
-    yarım yazılmış bozuk JSON halinde kalmaz.
-    """
-    tmp_path = path + ".tmp"
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, path)
-    except Exception:
-        if os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-        raise
 
 
 class ChatManager:
@@ -79,7 +58,7 @@ class ChatManager:
 
     def _save_chat(self, chat: dict) -> None:
         path = self._chat_path(chat["id"])
-        _atomic_write_json(path, chat)
+        atomic_write_json(path, chat)
 
     @staticmethod
     def _now() -> str:
@@ -166,6 +145,46 @@ class ChatManager:
         chat["updated_at"] = self._now()
         self._save_chat(chat)
         return chat
+
+    def rename_collection_in_chats(
+        self, old_collection: str, new_collection: str
+    ) -> int:
+        """
+        Belirli bir koleksiyona ait tüm sohbetlerin collection field'ını
+        günceller. Koleksiyon yeniden adlandırıldığında DBManager tarafından
+        çağrılır — aksi takdirde sohbetler yetim koleksiyon adına referans tutar.
+
+        updated_at değiştirilmez (içerik değişmedi, sadece refactor),
+        sidebar sıralaması bozulmasın.
+
+        Dönüs: güncellenen sohbet sayısı.
+        """
+        count = 0
+        try:
+            entries = os.listdir(self.chats_dir)
+        except OSError as e:
+            log.error(f"Sohbet dizini okunamadı: {e}", exc_info=True)
+            return 0
+
+        for fname in entries:
+            if not fname.endswith(".json") or fname.endswith(".tmp"):
+                continue
+            chat_id = fname[:-5]
+            chat = self._load_chat(chat_id)
+            if chat is None:
+                continue
+            if chat.get("collection") == old_collection:
+                chat["collection"] = new_collection
+                # updated_at'a dokunma — içerik değişmedi
+                self._save_chat(chat)
+                count += 1
+
+        if count:
+            log.info(
+                f"{count} sohbet koleksiyon adı güncellendi: "
+                f"'{old_collection}' -> '{new_collection}'"
+            )
+        return count
 
     def add_message(self, chat_id: str, message: dict) -> Optional[dict]:
         """

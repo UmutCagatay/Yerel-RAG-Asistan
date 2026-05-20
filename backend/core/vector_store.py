@@ -9,6 +9,7 @@ import chromadb
 import numpy as np
 import onnxruntime as ort
 from core.config import AppConfig
+from core.file_utils import atomic_write_json
 from llama_index.core import Settings, StorageContext, VectorStoreIndex
 from llama_index.core.embeddings import BaseEmbedding
 from llama_index.vector_stores.chroma import ChromaVectorStore
@@ -209,31 +210,6 @@ class JinaEmbeddings(BaseEmbedding):
         return self._encode([f"Document: {t}" for t in texts])
 
 
-def _atomic_write_json(path: str, data: dict) -> None:
-    """
-    JSON'u atomik olarak yazar: önce .tmp dosyasına yaz + fsync + os.replace.
-
-    Yazma yarıda kalırsa (elektrik, kill, crash) asıl dosya korunur; rename
-    işletim sistemi düzeyinde atomik olduğu için ya eski ya yeni hâli görünür,
-    asla yarım yazılmış bozuk JSON kalmaz.
-    """
-    tmp_path = path + ".tmp"
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())  # Diske git, OS cache'inde kalma
-        os.replace(tmp_path, path)  # Atomik rename — Windows ve Unix'te
-    except Exception:
-        # Yarım kalan tmp dosyasını temizle, yoksa diskte birikir
-        if os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-        raise
-
-
 class VectorStoreEngine:
     def __init__(
         self,
@@ -299,7 +275,7 @@ class VectorStoreEngine:
             }
 
         try:
-            _atomic_write_json(sections_file, existing)
+            atomic_write_json(sections_file, existing)
             log.debug(f"sections.json güncellendi: {len(parent_nodes)} yeni section")
         except Exception as e:
             log.error(f"sections.json yazılamadı: {e}", exc_info=True)

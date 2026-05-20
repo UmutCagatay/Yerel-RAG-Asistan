@@ -126,6 +126,37 @@ def delete_collection(name: str):
     return {"deleted": name}
 
 
+class RenameCollectionRequest(BaseModel):
+    """Koleksiyon yeniden adlandırma isteği."""
+
+    new_name: str
+
+
+@app.patch("/collections/{name}")
+def rename_collection(name: str, body: RenameCollectionRequest):
+    """
+    Koleksiyonu yeniden adlandırır. ChromaDB collection rename + chunks
+    metadata + sections.json + catalog + aktif state + sohbetler hepsi
+    senkron güncellenir.
+    """
+    result = db.rename_collection(
+        name, body.new_name, chat_manager=chat_manager
+    )
+    if not result.get("renamed"):
+        reason = result.get("reason", "Bilinmeyen hata")
+        if "zaten var" in reason:
+            status = 409
+        elif "adında koleksiyon yok" in reason:
+            status = 404
+        else:
+            status = 400
+        raise HTTPException(status_code=status, detail=reason)
+    return {
+        "renamed": result["new_name"],
+        "chats_updated": result.get("chats_updated", 0),
+    }
+
+
 @app.post("/collections/{name}/activate")
 def set_active_collection(name: str):
     """Aktif koleksiyonu değiştirir."""
@@ -260,6 +291,28 @@ def check_documents(body: CheckDocumentsRequest):
         else:
             new.append(name)
     return {"existing": existing, "new": new}
+
+
+class RenameDocumentRequest(BaseModel):
+    """Doküman yeniden adlandırma isteği."""
+
+    old_name: str
+    new_name: str
+
+
+@app.post("/documents/rename")
+def rename_document(body: RenameDocumentRequest):
+    """
+    Aktif koleksiyondaki bir dokümanı yeniden adlandırır.
+    Chunk'lar ve embedding'ler yerinde kalır — sadece metadata güncellenir.
+    """
+    result = db.rename_document(body.old_name, body.new_name)
+    if not result.get("renamed"):
+        reason = result.get("reason", "Bilinmeyen hata")
+        # Çakışma durumu için 409, diğerleri için 400
+        status = 409 if "zaten var" in reason else 400
+        raise HTTPException(status_code=status, detail=reason)
+    return {"renamed": result["new_name"]}
 
 
 class QueryRequest(BaseModel):
