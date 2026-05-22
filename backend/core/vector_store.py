@@ -18,11 +18,13 @@ from transformers import AutoTokenizer
 
 log = logging.getLogger(__name__)
 
-# Embedding inference sırasında VRAM kullanımını sınırlayan iç batch boyutu.
-# Tek seferde 32 metin tokenize edilip ORT'a verilir; binlerce chunk gelse de
-# VRAM kullanımı sabit kalır. 8GB VRAM kartında 32 güvenli; daha büyük batch
-# hızlandırır ama VRAM taşma riskini artırır.
-_EMBED_BATCH_SIZE: int = 32
+# Bir embedding batch'inin token bütçesi: (batch eleman sayısı × batchteki en
+# uzun dizi) bu değeri aşamaz. Attention belleği batch × dizi² ile büyüdüğü için
+# sabit eleman sayısı yerine token bütçesi tutuyoruz: kısa chunk'lar tek batch'te
+# çok sayıda toplanır (hızlı), uzun HTML tabloları az sayıda kalır (güvenli).
+# Worst-case tek katman attention skoru ≈ heads × max_seq × BUDGET; 8192'de fp32'de
+# bile ~0.6 GB, 6 GB arena'ya rahat sığar.
+_EMBED_TOKEN_BUDGET: int = 8192
 
 
 class JinaEmbeddings(BaseEmbedding):
@@ -40,10 +42,12 @@ class JinaEmbeddings(BaseEmbedding):
         arbitrary_types_allowed = True
 
     def __init__(self, device: str = "cuda"):
-        # embed_batch_size=10: LlamaIndex'in default'u. 4 dosyada peak ~3.4 GB
-        # ölçüldü, 6 GB cap'le bol pay var. Daha yüksek batch ingestion'ı
-        # hızlandırır ama attention bellek karesinde büyür; 10 dengeli nokta.
-        super().__init__(model_name="jina-v5-nano-onnx", embed_batch_size=10)
+        # embed_batch_size yüksek tutuluyor: LlamaIndex chunk'ları büyük gruplar
+        # halinde _encode'a versin diye (tek dosya zaten tek çağrıda gider).
+        # Bellek kontrolü artık BURADA değil — _encode içindeki token-bütçeli
+        # (uzunluk-duyarlı) batch'leme yapıyor. Sabit eleman sınırı, uzun/kısa
+        # chunk'ları aynı batch'e koyup boşuna padding'e yol açıyordu; kaldırıldı.
+        super().__init__(model_name="jina-v5-nano-onnx", embed_batch_size=512)
         if device not in ("cuda", "cpu"):
             raise ValueError(f"device 'cuda' veya 'cpu' olmalı, aldı: {device}")
 
@@ -140,61 +144,92 @@ class JinaEmbeddings(BaseEmbedding):
     # ── Encode (numpy I/O) ───────────────────────────────────────────────
     def _encode(self, texts: List[str]) -> List[List[float]]:
         """
-        Verilen metinleri embed eder. İç batch ile VRAM güvenli:
-        gelen liste ne kadar uzun olursa olsun, tek seferde en fazla
-        _EMBED_BATCH_SIZE kadar metin tokenize edilip inference yapılır.
+        Verilen metinleri embed eder. Uzunluk-duyarlı (token-bütçeli) batch'leme:
 
-        Önemli: LlamaIndex VectorStoreIndex tüm chunk'ları (binlerce olabilir)
-        tek çağrıda gönderebilir; eski tek-batch sürümü bu durumda VRAM'i
-        7-8 GB doldurup paylaşımlı belleğe taşma yapıyordu.
+        Tüm metinler tek seferde tokenize edilir, uzunluğa göre sıralanır ve
+        (eleman × en uzun dizi) <= _EMBED_TOKEN_BUDGET kuralıyla batch'lenir.
+        Böylece kısa chunk'lar büyük batch'lerde hızlı işlenir, uzun HTML
+        tabloları küçük batch'lerde kalıp attention belleğini patlatmaz.
+
+        Sıralama yalnızca işlem sırasını değiştirir; çıktı vektörleri girişle
+        AYNI sırada geri döner (embeddings_by_index[orijinal_index]).
         """
         if self._model is None or self._tokenizer is None:
             raise RuntimeError(
                 "Model tahliye edilmiş; tekrar JinaEmbeddings() oluştur."
             )
 
-        all_embeddings: List[List[float]] = []
+        if not texts:
+            return []
 
-        for start in range(0, len(texts), _EMBED_BATCH_SIZE):
-            batch = texts[start : start + _EMBED_BATCH_SIZE]
+        pad_id = self._tokenizer.pad_token_id
+        if pad_id is None:
+            pad_id = 0
 
-            # Tokenizer'dan numpy iste — torch tensor üretimini atla.
-            # max_length=1536: VLM blokları (VLM_MAX_TOKENS=1536) tek chunk
-            # olarak gelebildiği için cap'i ona göre tutuyoruz, bilgi kaybı
-            # olmasın. Attention seq^2 ile büyüdüğü için embed_batch_size=5
-            # ile dengeliyoruz (init'te ayarlı). VLM olmayan kısa chunk'lar
-            # padding=True ile zaten asıl uzunluklarında kalır.
-            enc = self._tokenizer(
-                batch,
-                padding=True,
-                truncation=True,
-                max_length=1536,
-                return_tensors="np",
+        # ── Adım 1: Hepsini padding'siz tokenize et, gerçek uzunlukları öğren ──
+        # padding=False → değişken uzunlukta python listeleri (np eşit uzunluk =
+        # padding ister, o yüzden np'ye çevirmiyoruz). truncation=1536 tavanı.
+        enc_all = self._tokenizer(
+            texts, padding=False, truncation=True, max_length=1536
+        )
+        ids_list = enc_all["input_ids"]
+        lengths = [len(x) for x in ids_list]
+
+        # ── Adım 2: Uzunluğa göre sırala (kısa → uzun), orijinal index'i sakla ──
+        order = sorted(range(len(texts)), key=lambda i: lengths[i])
+
+        embeddings_by_index: List[Optional[List[float]]] = [None] * len(texts)
+
+        # ── Adım 3: Token bütçesine göre batch'le ve her batch'i işle ─────────
+        pos = 0
+        while pos < len(order):
+            batch_indices: List[int] = []
+            batch_max = 0
+            while pos < len(order):
+                idx = order[pos]
+                cand_max = max(batch_max, lengths[idx])
+                # İlk eleman bütçeyi aşsa bile alınır (tek başına işlenir).
+                if (
+                    batch_indices
+                    and (len(batch_indices) + 1) * cand_max > _EMBED_TOKEN_BUDGET
+                ):
+                    break
+                batch_indices.append(idx)
+                batch_max = cand_max
+                pos += 1
+
+            # Bu batch'i batch_max'a sağdan padd'le (tokenizer right-padding ile aynı)
+            bsz = len(batch_indices)
+            input_ids = np.full((bsz, batch_max), pad_id, dtype=np.int64)
+            attention_mask = np.zeros((bsz, batch_max), dtype=np.int64)
+            for row, idx in enumerate(batch_indices):
+                L = lengths[idx]
+                input_ids[row, :L] = ids_list[idx]
+                attention_mask[row, :L] = 1
+
+            outputs = self._model.model.run(
+                None,
+                {"input_ids": input_ids, "attention_mask": attention_mask},
             )
-
-            # ORT InferenceSession'a doğrudan numpy ver.
-            # CUDA provider aktifse host→device kopya ORT içinde yapılır.
-            ort_inputs = {
-                "input_ids": enc["input_ids"].astype(np.int64),
-                "attention_mask": enc["attention_mask"].astype(np.int64),
-            }
-            outputs = self._model.model.run(None, ort_inputs)
             last_hidden = outputs[0]  # (batch, seq, hidden), numpy
 
-            # Last-token pooling (resmi Jina kullanımı)
-            attention_mask = enc["attention_mask"]
+            # Last-token pooling (resmi Jina kullanımı) — sağ padding olduğu için
+            # son gerçek token = sum(mask) - 1
             seq_lengths = attention_mask.sum(axis=1) - 1
-            batch_idx = np.arange(last_hidden.shape[0])
-            embeddings = last_hidden[batch_idx, seq_lengths]
+            row_idx = np.arange(bsz)
+            emb = last_hidden[row_idx, seq_lengths]
 
             # L2 normalize
-            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            norms = np.linalg.norm(emb, axis=1, keepdims=True)
             norms = np.maximum(norms, 1e-8)
-            embeddings = embeddings / norms
+            emb = emb / norms
 
-            all_embeddings.extend(embeddings.tolist())
+            # Orijinal sıraya geri yerleştir
+            emb_list = emb.tolist()
+            for row, idx in enumerate(batch_indices):
+                embeddings_by_index[idx] = emb_list[row]
 
-        return all_embeddings
+        return embeddings_by_index  # type: ignore[return-value]
 
     # ── BaseEmbedding kontratı ───────────────────────────────────────────
     def _get_text_embedding(self, text: str) -> List[float]:
