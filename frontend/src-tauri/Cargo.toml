@@ -23,3 +23,13 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Sadece Windows derlemesinde çekilir. Backend sürecini bir Job Object'e
+# atıp "parent ölürse child de ölsün" garantisi için Win32 API'leri.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+

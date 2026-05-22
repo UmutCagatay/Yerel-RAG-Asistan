@@ -155,6 +155,9 @@ function App() {
   const [collection, setCollection] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  // Backend açılışı birkaç saniye sürdüğü için açılışta bu true kalır;
+  // /health cevap verene kadar arayüz "başlatılıyor" durumunda tutulur.
+  const [booting, setBooting] = useState<boolean>(true);
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -274,8 +277,43 @@ function App() {
     }
   }
 
+  // Backend ayağa kalkana kadar /health'i yokla. Tauri penceresi backend'den
+  // önce açıldığı için, ilk isteği hemen atıp hata göstermek yerine hazır
+  // olmasını bekliyoruz. delayMs aralıkla maxAttempts kez dener.
+  async function waitForBackend(
+    maxAttempts = 60,
+    delayMs = 1000,
+  ): Promise<boolean> {
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const r = await fetch(`${API}/health`);
+        if (r.ok) return true;
+      } catch {
+        // Backend henüz ayakta değil — beklemeye devam et.
+      }
+      await new Promise((res) => setTimeout(res, delayMs));
+    }
+    return false;
+  }
+
+  // Önce backend'i bekle, hazır olunca verileri yükle. Zaman aşımında hata
+  // göster. Hem ilk açılışta hem "Tekrar Dene" butonunda bu çalışır.
+  async function connectAndLoad() {
+    setBooting(true);
+    setError(null);
+    const ready = await waitForBackend();
+    if (!ready) {
+      setError("Backend başlatılamadı (zaman aşımı).");
+      setBooting(false);
+      setLoading(false);
+      return;
+    }
+    setBooting(false);
+    await fetchInitial();
+  }
+
   useEffect(() => {
-    fetchInitial();
+    connectAndLoad();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1094,7 +1132,7 @@ function App() {
             <span className="text-red-700 text-xs">({error})</span>
           </span>
           <button
-            onClick={fetchInitial}
+            onClick={connectAndLoad}
             disabled={loading}
             className="text-xs px-3 py-1 border border-red-300 text-red-900 rounded-md hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
@@ -1693,6 +1731,20 @@ function App() {
               >
                 İptal
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {booting && !error && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl px-8 py-6 flex items-center gap-4 border border-slate-200">
+            <div className="w-6 h-6 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <div>
+              <p className="font-medium text-slate-900">Uygulama başlatılıyor…</p>
+              <p className="text-xs text-slate-500 mt-1">
+                Modeller hazırlanıyor, birkaç saniye sürebilir.
+              </p>
             </div>
           </div>
         </div>
