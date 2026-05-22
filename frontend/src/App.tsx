@@ -14,6 +14,9 @@ type Doc = {
 
 type MessageScope = {
   type: "document" | "collection";
+  file_names?: string[] | null;
+  // Eski sohbetler tek 'file_name' ile kaydedilmişti; okurken geriye dönük
+  // çözmek için tipte tutuluyor. Yeni mesajlar file_names yazar.
   file_name?: string | null;
 };
 
@@ -111,14 +114,29 @@ function formatDuration(seconds: number): string {
   return rem === 0 ? `${m} dk` : `${m} dk ${rem} sn`;
 }
 
+// Scope'tan doküman adlarını çıkarır. Yeni mesajlar file_names listesi tutar;
+// eski mesajlar tek file_name tutuyordu — ikisini de destekle.
+function scopeFileNames(scope?: MessageScope): string[] {
+  if (!scope) return [];
+  if (scope.file_names && scope.file_names.length > 0) return scope.file_names;
+  if (scope.file_name) return [scope.file_name];
+  return [];
+}
+
 // User mesajının yanında "hangi kapsamda soruldu" rozeti.
-// type=document → 📄 <file_name>, type=collection → 📁 koleksiyon
+// type=document → 📄 tek isim ya da "N doküman", type=collection → 📁 koleksiyon
 function ScopeBadge({ scope }: { scope?: MessageScope }) {
   if (!scope) return null;
-  if (scope.type === "document" && scope.file_name) {
+  if (scope.type === "document") {
+    const names = scopeFileNames(scope);
+    if (names.length === 0) return null;
+    const label = names.length === 1 ? names[0] : `${names.length} doküman`;
     return (
-      <div className="text-xs text-slate-400 mt-1 text-right">
-        📄 {scope.file_name}
+      <div
+        className="text-xs text-slate-400 mt-1 text-right"
+        title={names.join(", ")}
+      >
+        📄 {label}
       </div>
     );
   }
@@ -137,7 +155,7 @@ function App() {
   const [collection, setCollection] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedDoc, setSelectedDoc] = useState<string | null>(null);
+  const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState<string>("");
@@ -420,10 +438,11 @@ function App() {
     if (!input.trim() || isStreaming) return;
 
     const question = input.trim();
-    // Bu mesajın kapsamı: doküman seçiliyse o doküman, değilse tüm koleksiyon
-    const scope: MessageScope = selectedDoc
-      ? { type: "document", file_name: selectedDoc }
-      : { type: "collection" };
+    // Bu mesajın kapsamı: doküman(lar) seçiliyse onlar, değilse tüm koleksiyon
+    const scope: MessageScope =
+      selectedDocs.length > 0
+        ? { type: "document", file_names: selectedDocs }
+        : { type: "collection" };
 
     setInput("");
     setIsStreaming(true);
@@ -444,7 +463,8 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
-          file_name: selectedDoc, // null gönderebilir, backend tüm koleksiyon arar
+          // Boş liste gönderebilir, backend tüm koleksiyonu arar
+          file_names: selectedDocs,
         }),
       });
 
@@ -585,11 +605,11 @@ function App() {
       }
 
       await refreshDocs();
-      // Seçili doküman bu ise yeni isme güncelle ki seimme bozulmasın.
-      // Eski mesajlardaki scope.file_name dokunulmaz (geriye dönük snapshot).
-      if (selectedDoc === oldName) {
-        setSelectedDoc(newName);
-      }
+      // Seçili dokümanlar arasında bu varsa yeni isme güncelle ki seçim bozulmasın.
+      // Eski mesajlardaki scope dokunulmaz (geriye dönük snapshot).
+      setSelectedDocs((prev) =>
+        prev.map((n) => (n === oldName ? newName : n)),
+      );
       setToast({
         type: "success",
         message: `'${oldName}' -> '${newName}'`,
@@ -661,11 +681,9 @@ function App() {
           message: `Silinemedi: ${result.failed[0].reason}`,
         });
       } else {
-        // Silinen dosya seçiliyse seçimi kaldır — ama aktif sohbetin
+        // Silinen dosya seçiliyse seçimden çıkar — ama aktif sohbetin
         // mesajlarına dokunma, onlar geriye dönük görüntüleme için kalır.
-        if (selectedDoc === fileName) {
-          setSelectedDoc(null);
-        }
+        setSelectedDocs((prev) => prev.filter((n) => n !== fileName));
         await refreshDocs();
       }
     } catch (err) {
@@ -697,7 +715,7 @@ function App() {
 
       setCollection(name);
       setDocs(docsData.documents);
-      setSelectedDoc(null);
+      setSelectedDocs([]);
       // Sohbet bir koleksiyona kilitli — koleksiyon değişti, aktif sohbeti bırak
       setActiveChatId(null);
       setMessages([]);
@@ -764,7 +782,7 @@ function App() {
         const docsData = await docsRes.json();
         setCollection(docsData.collection);
         setDocs(docsData.documents);
-        setSelectedDoc(null);
+        setSelectedDocs([]);
         setActiveChatId(null);
         setMessages([]);
       }
@@ -1042,18 +1060,24 @@ function App() {
             Yerel RAG Asistanı
           </h1>
         </div>
-        {selectedDoc && (
+        {selectedDocs.length > 0 && (
           <>
             <div className="h-4 w-px bg-slate-200" />
             <div className="flex items-center gap-1.5 text-xs">
               <span className="text-slate-500">Kapsam:</span>
-              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md font-medium border border-indigo-100">
-                📄 {selectedDoc}
+              <span
+                className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md font-medium border border-indigo-100"
+                title={selectedDocs.join(", ")}
+              >
+                📄{" "}
+                {selectedDocs.length === 1
+                  ? selectedDocs[0]
+                  : `${selectedDocs.length} doküman`}
               </span>
             </div>
           </>
         )}
-        {!selectedDoc && activeChatId && (
+        {selectedDocs.length === 0 && activeChatId && (
           <>
             <div className="h-4 w-px bg-slate-200" />
             <span className="text-xs text-slate-500 italic">
@@ -1250,11 +1274,23 @@ function App() {
                 <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">
                   Dokümanlar
                 </span>
-                {!loading && docs.length > 0 && (
-                  <span className="text-[10px] text-slate-400 font-medium tabular-nums">
-                    {docs.length}
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {selectedDocs.length > 0 && (
+                    <button
+                      onClick={() => setSelectedDocs([])}
+                      disabled={isStreaming}
+                      className="text-[10px] text-slate-400 hover:text-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title="Tüm doküman seçimini kaldır"
+                    >
+                      Seçimi temizle ({selectedDocs.length})
+                    </button>
+                  )}
+                  {!loading && docs.length > 0 && (
+                    <span className="text-[10px] text-slate-400 font-medium tabular-nums">
+                      {docs.length}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-0">
                 {loading && (
@@ -1275,7 +1311,7 @@ function App() {
                               ? "opacity-60 cursor-not-allowed"
                               : "cursor-pointer"
                           } ${
-                            selectedDoc === doc.file_name
+                            selectedDocs.includes(doc.file_name)
                               ? "bg-white text-indigo-700 border-indigo-200 shadow-sm"
                               : !isStreaming
                                 ? "text-slate-700 hover:bg-white/70 border-transparent"
@@ -1284,8 +1320,11 @@ function App() {
                           onClick={() => {
                             if (isStreaming) return;
                             if (editingDocName === doc.file_name) return;
-                            setSelectedDoc((prev) =>
-                              prev === doc.file_name ? null : doc.file_name,
+                            // Ekle/çıkar: seçiliyse listeden çıkar, değilse ekle.
+                            setSelectedDocs((prev) =>
+                              prev.includes(doc.file_name)
+                                ? prev.filter((n) => n !== doc.file_name)
+                                : [...prev, doc.file_name],
                             );
                           }}
                           onDoubleClick={(e) => {
@@ -1500,14 +1539,16 @@ function App() {
                   💬
                 </div>
                 <p className="text-sm text-slate-700 font-medium">
-                  {selectedDoc
-                    ? `'${selectedDoc}' içinde soru sorabilirsin.`
-                    : "Sohbete başla."}
+                  {selectedDocs.length === 0
+                    ? "Sohbete başla."
+                    : selectedDocs.length === 1
+                      ? `'${selectedDocs[0]}' içinde soru sorabilirsin.`
+                      : `Seçili ${selectedDocs.length} doküman içinde soru sorabilirsin.`}
                 </p>
                 <p className="text-xs text-slate-500 mt-1">
-                  {selectedDoc
-                    ? "Doküman seçimini kaldırarak tüm koleksiyonda da arayabilirsin."
-                    : "Bir doküman seç ya da seçmeden tüm koleksiyonda sor."}
+                  {selectedDocs.length === 0
+                    ? "Bir doküman seç ya da seçmeden tüm koleksiyonda sor."
+                    : "Doküman seçimini kaldırarak tüm koleksiyonda da arayabilirsin."}
                 </p>
               </div>
             )}
@@ -1556,9 +1597,11 @@ function App() {
               }}
               disabled={isStreaming}
               placeholder={
-                selectedDoc
-                  ? `'${selectedDoc}' içinde sor...`
-                  : "Tüm koleksiyonda sor..."
+                selectedDocs.length === 0
+                  ? "Tüm koleksiyonda sor..."
+                  : selectedDocs.length === 1
+                    ? `'${selectedDocs[0]}' içinde sor...`
+                    : `Seçili ${selectedDocs.length} doküman içinde sor...`
               }
               className="flex-1 bg-white border border-slate-300 rounded-lg px-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:cursor-not-allowed transition-all"
             />

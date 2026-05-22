@@ -36,18 +36,20 @@ class QueryEngine:
         self.collection_name = collection_name
         self.persist_dir = persist_dir
 
-    def run(self, question: str, file_name: str | None = None) -> str:
+    def run(self, question: str, file_names: list[str] | None = None) -> str:
         """
         Sorguyu çalıştırır, cevabı string olarak döndürür.
 
-        file_name: Hangi dokümanda arama yapılacak. RetrieverEngine'a
-                   metadata filtresi olarak iletilir.
-                   None ise tüm aktif koleksiyon kapsamında aranır.
+        file_names: Hangi dokümanlarda arama yapılacak. RetrieverEngine'a
+                    metadata filtresi olarak iletilir.
+                    Boş/None ise tüm aktif koleksiyon kapsamında aranır.
 
         Bellek yönetimi: 'with' blokları sayesinde RetrieverEngine ve
         LLMEngine her koşulda (exception olsa bile) unload edilir.
         """
-        scope_label = f"doküman: '{file_name}'" if file_name else "tüm koleksiyon"
+        scope_label = (
+            f"doküman(lar): {file_names}" if file_names else "tüm koleksiyon"
+        )
         log.info(
             f"Sorgu başlatıldı — koleksiyon: '{self.collection_name}', "
             f"{scope_label}, soru: {question!r}"
@@ -69,7 +71,7 @@ class QueryEngine:
                 query=question,
                 top_n=AppConfig.RERANKER_TOP_N,
                 threshold=0.0,
-                file_name=file_name,
+                file_names=file_names,
             )
             log.debug(f"Bağlam hazır ({time.time() - t:.2f} sn).")
         # Retriever burada otomatik unload — exception olsa bile.
@@ -93,7 +95,7 @@ class QueryEngine:
         log.info(f"Sorgu tamamlandı ({time.time() - start_time:.2f} sn).")
         return answer
 
-    def run_stream(self, question: str, file_name: str | None = None):
+    def run_stream(self, question: str, file_names: list[str] | None = None):
         """
         Sorguyu çalıştırır, cevabı token token yield eder.
 
@@ -102,9 +104,11 @@ class QueryEngine:
         bağlantıyı koparırsa (GeneratorExit) veya exception çıkarsa bile
         her iki engine unload edilir.
 
-        file_name=None: tüm aktif koleksiyon kapsamında arar.
+        file_names boş/None: tüm aktif koleksiyon kapsamında arar.
         """
-        scope_label = f"doküman: '{file_name}'" if file_name else "tüm koleksiyon"
+        scope_label = (
+            f"doküman(lar): {file_names}" if file_names else "tüm koleksiyon"
+        )
         log.info(
             f"Streaming sorgu — koleksiyon: '{self.collection_name}', "
             f"{scope_label}, soru: {question!r}"
@@ -122,7 +126,7 @@ class QueryEngine:
                 query=question,
                 top_n=AppConfig.RERANKER_TOP_N,
                 threshold=0.0,
-                file_name=file_name,
+                file_names=file_names,
             )
         gc.collect()
 

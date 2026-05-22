@@ -233,10 +233,14 @@ class RetrieverEngine:
         query: str,
         top_n: int = 3,
         threshold: float = 0.0,
-        file_name: str | None = None,
+        file_names: list[str] | None = None,
     ):
         """
         Sorguya en uygun bağlamı döndürür.
+
+        file_names: Hangi dokümanlarda arama yapılacak. Boş/None ise tüm
+                    koleksiyon kapsamında aranır. Tek veya birden çok
+                    doküman olabilir; ChromaDB $in filtresiyle kapsanır.
 
         Akış:
             1. k=10 ile tez_koleksiyonu'ndan child node'lar çek (section'lar ayrı koleksiyonda)
@@ -250,11 +254,12 @@ class RetrieverEngine:
         # Constructor'daki base_retriever sade kalır, oturum içinde
         # farklı dokümanlara sorgu atılabilir.
         search_start = time.time()
-        if file_name:
+        if file_names:
+            # Tek dosyada da $in çalışır, böylece tek/çoklu ayrımı kalkar.
             filtered_retriever = self.vectorstore.as_retriever(
                 search_kwargs={
                     "k": AppConfig.RETRIEVER_K,
-                    "filter": {"file_name": file_name},
+                    "filter": {"file_name": {"$in": file_names}},
                 }
             )
             raw_docs = filtered_retriever.invoke(query)

@@ -365,16 +365,16 @@ def reorder_documents(body: ReorderDocumentsRequest):
 
 
 class QueryRequest(BaseModel):
-    """Sorgu için gerekli bilgiler. file_name=None ise tüm koleksiyon kapsamı."""
+    """Sorgu için gerekli bilgiler. file_names boş/None ise tüm koleksiyon kapsamı."""
 
     question: str
-    file_name: str | None = None
+    file_names: list[str] | None = None
 
 
 @app.post("/query")
 def query(body: QueryRequest):
     """
-    Aktif koleksiyondaki belirli bir doküman üzerinde sorgu çalıştırır.
+    Aktif koleksiyondaki bir veya birden çok doküman üzerinde sorgu çalıştırır.
     Modeller yüklenip cevap üretildiği için uzun sürebilir.
 
     Eşzamanlılık: aynı anda tek bir sorgu çalışır (VRAM koruması).
@@ -384,13 +384,15 @@ def query(body: QueryRequest):
     if not body.question.strip():
         raise HTTPException(status_code=400, detail="Soru boş olamaz.")
 
-    # Doküman adı verilmişse var olduğunu doğrula. file_name=None ise
-    # tüm aktif koleksiyon kapsamında arama yapılacak — doğrulama gerekmez.
-    if body.file_name is not None and not db.document_exists(body.file_name):
-        raise HTTPException(
-            status_code=404,
-            detail=f"'{body.file_name}' aktif koleksiyonda bulunamadı.",
-        )
+    # Doküman adı verilmişse hepsinin var olduğunu doğrula. file_names boş/None
+    # ise tüm aktif koleksiyon kapsamında arama yapılacak — doğrulama gerekmez.
+    if body.file_names:
+        for name in body.file_names:
+            if not db.document_exists(name):
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"'{name}' aktif koleksiyonda bulunamadı.",
+                )
 
     # Lock'u dene — şu an başka sorgu çalışıyorsa hemen 409 dön.
     if not query_lock.acquire(blocking=False):
@@ -401,7 +403,7 @@ def query(body: QueryRequest):
 
     try:
         engine = QueryEngine(collection_name=db.active_collection)
-        answer = engine.run(question=body.question, file_name=body.file_name)
+        answer = engine.run(question=body.question, file_names=body.file_names)
         return {"answer": answer}
     finally:
         query_lock.release()
@@ -420,12 +422,14 @@ def query_stream(body: QueryRequest):
     if not body.question.strip():
         raise HTTPException(status_code=400, detail="Soru boş olamaz.")
 
-    # file_name=None → tüm koleksiyon kapsamı. Dolu ise doküman var mı bak.
-    if body.file_name is not None and not db.document_exists(body.file_name):
-        raise HTTPException(
-            status_code=404,
-            detail=f"'{body.file_name}' aktif koleksiyonda bulunamadı.",
-        )
+    # file_names boş/None → tüm koleksiyon kapsamı. Dolu ise hepsi var mı bak.
+    if body.file_names:
+        for name in body.file_names:
+            if not db.document_exists(name):
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"'{name}' aktif koleksiyonda bulunamadı.",
+                )
 
     # Lock'u dene — başka bir streaming devam ediyorsa hemen 409 dön.
     if not query_lock.acquire(blocking=False):
@@ -444,7 +448,7 @@ def query_stream(body: QueryRequest):
             engine = QueryEngine(collection_name=db.active_collection)
             for chunk in engine.run_stream(
                 question=body.question,
-                file_name=body.file_name,
+                file_names=body.file_names,
             ):
                 yield chunk
         finally:
@@ -533,12 +537,12 @@ def update_chat_title(chat_id: str, body: UpdateChatTitleRequest):
 class MessageScope(BaseModel):
     """
     Bir user mesajının hangi kapsamda sorulduğunu temsil eder.
-    type='document' ise file_name dolu olmalı.
-    type='collection' ise tüm aktif koleksiyon kapsamı demek, file_name None.
+    type='document' ise file_names en az bir dosya içerir (tek veya çoklu).
+    type='collection' ise tüm aktif koleksiyon kapsamı demek, file_names None.
     """
 
     type: str  # "document" | "collection"
-    file_name: str | None = None
+    file_names: list[str] | None = None
 
 
 class AddMessageRequest(BaseModel):
