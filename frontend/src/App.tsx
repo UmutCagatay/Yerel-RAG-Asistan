@@ -1085,9 +1085,9 @@ function App() {
 
   return (
     <div className="flex flex-col h-screen">
-      <header className="border-b border-slate-200 bg-white px-5 py-3 flex items-center gap-3 flex-shrink-0">
+      <header className="border-b border-slate-200 bg-white px-5 py-3 flex items-center gap-3 shrink-0">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm">
+          <div className="w-7 h-7 rounded-lg bg-linear-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm">
             <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
               <line x1="7" y1="9" x2="17" y2="9" />
@@ -1126,7 +1126,7 @@ function App() {
       </header>
 
       {error && (
-        <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center justify-between text-sm flex-shrink-0">
+        <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center justify-between text-sm shrink-0">
           <span className="text-red-900">
             Backend'e bağlanılamıyor — sunucu çalışıyor mu?{" "}
             <span className="text-red-700 text-xs">({error})</span>
@@ -1142,7 +1142,7 @@ function App() {
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-72 bg-slate-100 border-r border-slate-200 flex flex-col overflow-hidden flex-shrink-0">
+        <aside className="w-72 bg-slate-100 border-r border-slate-200 flex flex-col overflow-hidden shrink-0">
           {/* Koleksiyon picker — header'dan buraya taşındı */}
           <div className="p-3 border-b border-slate-200 relative" ref={collectionMenuRef}>
             <button
@@ -1152,7 +1152,7 @@ function App() {
               title={isStreaming ? "Sorgu sürüyor, bekleyin" : "Koleksiyon değiştir"}
             >
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-7 h-7 rounded-md bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 text-sm flex-shrink-0">
+                <div className="w-7 h-7 rounded-md bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 text-sm shrink-0">
                   📚
                 </div>
                 <div className="text-left min-w-0">
@@ -1165,7 +1165,7 @@ function App() {
                 </div>
               </div>
               <svg
-                className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${showCollectionMenu ? "rotate-180" : ""}`}
+                className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${showCollectionMenu ? "rotate-180" : ""}`}
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1308,7 +1308,7 @@ function App() {
           <div className="flex flex-col flex-1 min-h-0">
             {/* Dokümanlar */}
             <div className="flex flex-col flex-1 min-h-0">
-              <div className="px-3 pt-3 pb-1.5 flex items-center justify-between flex-shrink-0">
+              <div className="px-3 pt-3 pb-1.5 flex items-center justify-between shrink-0">
                 <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">
                   Dokümanlar
                 </span>
@@ -1392,12 +1392,12 @@ function App() {
                             />
                           ) : (
                             <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                              <span className="text-slate-400 text-xs flex-shrink-0">📄</span>
+                              <span className="text-slate-400 text-xs shrink-0">📄</span>
                               <span className="truncate">{doc.file_name}</span>
                             </div>
                           )}
                           {editingDocName !== doc.file_name && (
-                            <div className="flex items-center gap-0.5 flex-shrink-0">
+                            <div className="flex items-center gap-0.5 shrink-0">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1447,7 +1447,7 @@ function App() {
 
             {/* Sohbetler */}
             <div className="flex flex-col flex-1 min-h-0 border-t border-slate-200">
-              <div className="px-3 pt-3 pb-1.5 flex items-center justify-between flex-shrink-0">
+              <div className="px-3 pt-3 pb-1.5 flex items-center justify-between shrink-0">
                 <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">
                   Sohbetler
                 </span>
@@ -1522,7 +1522,7 @@ function App() {
                           />
                         ) : (
                           <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                            <span className="text-slate-400 text-xs flex-shrink-0">💬</span>
+                            <span className="text-slate-400 text-xs shrink-0">💬</span>
                             <span className="truncate">{chat.title}</span>
                           </div>
                         )}
@@ -1550,7 +1550,7 @@ function App() {
 
         <main className="flex-1 flex flex-col bg-white">
           {(activeChat || messages.length > 0) && (
-            <div className="border-b border-slate-200 bg-white px-4 py-1.5 flex items-center justify-between flex-shrink-0">
+            <div className="border-b border-slate-200 bg-white px-4 py-1.5 flex items-center justify-between shrink-0">
               <span className="text-sm text-slate-700 truncate">
                 {activeChat ? activeChat.title : "Yeni Sohbet"}
               </span>
@@ -1573,7 +1573,7 @@ function App() {
           >
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center mt-16 text-center px-6">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-xl mb-3 shadow-md">
+                <div className="w-12 h-12 rounded-xl bg-linear-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-xl mb-3 shadow-md">
                   💬
                 </div>
                 <p className="text-sm text-slate-700 font-medium">
@@ -1595,7 +1595,7 @@ function App() {
               if (msg.role === "user") {
                 return (
                   <div key={i} className="max-w-xl ml-auto">
-                    <div className="bg-gradient-to-br from-indigo-600 to-violet-700 text-white px-3.5 py-2 rounded-2xl rounded-tr-md whitespace-pre-wrap shadow-md shadow-indigo-900/20">
+                    <div className="bg-linear-to-br from-indigo-600 to-violet-700 text-white px-3.5 py-2 rounded-2xl rounded-tr-md whitespace-pre-wrap shadow-md shadow-indigo-900/20">
                       {msg.content}
                     </div>
                     <ScopeBadge scope={msg.scope} />
@@ -1622,7 +1622,7 @@ function App() {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="border-t border-slate-200 bg-white p-3 flex gap-2 flex-shrink-0">
+          <div className="border-t border-slate-200 bg-white p-3 flex gap-2 shrink-0">
             <input
               type="text"
               value={input}
@@ -1657,46 +1657,51 @@ function App() {
       {conflicts.length > 0 && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 p-6 border border-slate-200">
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">Çakışan Dosyalar</h3>
+            <h3 className="text-lg font-semibold text-slate-900 mb-1">Çakışan Dosyalar</h3>
             <p className="text-sm text-slate-600 mb-4">
-              Aşağıdaki dosyalar koleksiyonda zaten var. Her biri için ne
-              yapılacağını seç.
+              Bu dosyalar koleksiyonda zaten var. Her biri için üzerine mi
+              yazılsın, atlansın mı seç.
             </p>
 
-            <div className="flex gap-2 mb-3 text-xs">
-              <button
-                onClick={() => setAllDecisions("overwrite")}
-                className="px-2.5 py-1 border border-slate-300 rounded-md hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors"
-              >
-                Tümüne üzerine yaz
-              </button>
-              <button
-                onClick={() => setAllDecisions("skip")}
-                className="px-2.5 py-1 border border-slate-300 rounded-md hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors"
-              >
-                Tümünü atla
-              </button>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-slate-500">Tümü için:</span>
+              <div className="flex gap-2 text-xs">
+                <button
+                  onClick={() => setAllDecisions("overwrite")}
+                  className="px-2.5 py-1 border border-slate-300 rounded-md hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors"
+                >
+                  Üzerine yaz
+                </button>
+                <button
+                  onClick={() => setAllDecisions("skip")}
+                  className="px-2.5 py-1 border border-slate-300 rounded-md hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors"
+                >
+                  Atla
+                </button>
+              </div>
             </div>
 
-            <ul className="space-y-2 max-h-64 overflow-y-auto mb-4">
+            <ul className="space-y-1.5 max-h-64 overflow-y-auto mb-5 border border-slate-100 rounded-lg p-2 bg-slate-50/50">
               {conflicts.map((name) => (
                 <li
                   key={name}
-                  className="flex items-center justify-between gap-2"
+                  className="flex items-center justify-between gap-3 px-2 py-1.5 bg-white border border-slate-200 rounded-md"
                 >
-                  <span className="text-sm text-slate-700 truncate flex-1">{name}</span>
-                  <div className="flex gap-1">
+                  <span
+                    className="text-sm text-slate-700 truncate flex-1"
+                    title={name}
+                  >
+                    {name}
+                  </span>
+                  <div className="flex shrink-0 rounded-md overflow-hidden border border-slate-300">
                     <button
                       onClick={() =>
-                        setDecisions((prev) => ({
-                          ...prev,
-                          [name]: "overwrite",
-                        }))
+                        setDecisions((prev) => ({ ...prev, [name]: "overwrite" }))
                       }
-                      className={`text-xs px-2 py-1 rounded-md transition-colors ${
+                      className={`text-xs px-2.5 py-1 transition-colors ${
                         decisions[name] === "overwrite"
                           ? "bg-indigo-600 text-white"
-                          : "border border-slate-300 hover:bg-slate-50"
+                          : "bg-white text-slate-600 hover:bg-slate-50"
                       }`}
                     >
                       Üzerine yaz
@@ -1705,10 +1710,10 @@ function App() {
                       onClick={() =>
                         setDecisions((prev) => ({ ...prev, [name]: "skip" }))
                       }
-                      className={`text-xs px-2 py-1 rounded-md transition-colors ${
+                      className={`text-xs px-2.5 py-1 border-l border-slate-300 transition-colors ${
                         decisions[name] === "skip"
                           ? "bg-indigo-600 text-white"
-                          : "border border-slate-300 hover:bg-slate-50"
+                          : "bg-white text-slate-600 hover:bg-slate-50"
                       }`}
                     >
                       Atla
@@ -1721,7 +1726,7 @@ function App() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={confirmConflicts}
-                className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
+                className="px-4 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
               >
                 Devam Et
               </button>
