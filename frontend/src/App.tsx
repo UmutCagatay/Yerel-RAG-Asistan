@@ -37,25 +37,6 @@ type ToastMsg = {
   message: string;
 };
 
-// Backend /documents/estimate yanıtı. Frontend modal'da özet gösterir,
-// onaylanınca tutulan dosyalar /documents'a gönderilir.
-type EstimateData = {
-  files: { name: string; pages: number; images: number; seconds: number }[];
-  total_pages: number;
-  total_images: number;
-  total_seconds: number;
-  use_vlm: boolean;
-  rejected?: { name: string; reason: string }[];
-};
-
-// Estimate sonrası onay bekleyen upload — modal kapanınca dosyalar ve
-// kararlar burada saklanır, onayda doğrudan doUpload'a aktarılır.
-type PendingEstimate = {
-  files: File[];
-  decisions: Record<string, "overwrite" | "skip">;
-  estimate: EstimateData;
-};
-
 // <think>...</think> bloklarını metin parçalarından ayırır.
 // Akış sırasında blok kapanmamış olabilir; o zaman 'complete: false' işaretlenir.
 function parseThinkBlocks(content: string) {
@@ -119,7 +100,7 @@ function AssistantMessage({ content }: { content: string }) {
   );
 }
 
-// Saniyeyi "X dk Y sn" / "Y sn" formatlar. Estimate ve countdown'da kullanılır.
+// Saniyeyi "X dk Y sn" / "Y sn" formatlar. Geçen süre gösteriminde kullanılır.
 // 60 sn altında "Y sn", üstünde "X dk Y sn". Math.floor saniyeyi tam sayıya
 // indirir, kullanıcı "57.4 sn" yerine "57 sn" görür.
 function formatDuration(seconds: number): string {
@@ -195,18 +176,10 @@ function App() {
   const collectionMenuRef = useRef<HTMLDivElement>(null);
 
   const [maxFileSizeMb, setMaxFileSizeMb] = useState<number>(50);
-  // Backend tarafındaki INGEST_ESTIMATE_ENABLED bayrağı health'ten okunur.
-  // True ise upload öncesi estimate modali gösterilir; false ise eski akış.
-  const [ingestEstimateEnabled, setIngestEstimateEnabled] =
-    useState<boolean>(false);
-  // Estimate modal açıkken bekletilen veri. null = modal kapalı.
-  const [pendingEstimate, setPendingEstimate] =
-    useState<PendingEstimate | null>(null);
-  // Upload modali açıkken kullanılan tahmin verisi + başlangıç zamanı.
-  // Estimate kapalıysa null kalır ve countdown gösterilmez.
-  const [uploadEstimateSec, setUploadEstimateSec] = useState<number | null>(
-    null,
-  );
+  // İşlenmekte olan doküman sayısı — upload modalında "N doküman işleniyor"
+  // yazısı için. Backend tek seferde tüm batch'i işleyip döndüğü için canlı
+  // "x/N" ilerleme yok; toplam sayı + geçen süre gösterilir.
+  const [uploadCount, setUploadCount] = useState<number>(0);
   const [uploadStartMs, setUploadStartMs] = useState<number | null>(null);
   const [uploadElapsedSec, setUploadElapsedSec] = useState<number>(0);
   const [toast, setToast] = useState<ToastMsg | null>(null);
@@ -233,9 +206,6 @@ function App() {
       setAllCollections(colData.all);
       if (typeof healthData.max_file_size_mb === "number") {
         setMaxFileSizeMb(healthData.max_file_size_mb);
-      }
-      if (typeof healthData.ingest_estimate_enabled === "boolean") {
-        setIngestEstimateEnabled(healthData.ingest_estimate_enabled);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Bağlantı hatası");
@@ -928,7 +898,7 @@ function App() {
       const checkData = await checkRes.json();
 
       if (checkData.existing.length === 0) {
-        await requestEstimateOrUpload(fileArr, {});
+        await doUpload(fileArr, {});
       } else {
         setPendingFiles(fileArr);
         setConflicts(checkData.existing);
@@ -949,14 +919,13 @@ function App() {
   async function doUpload(
     files: File[],
     decisionsMap: Record<string, "overwrite" | "skip">,
-    estimateSec: number | null = null,
   ) {
     setPendingFiles([]);
     setConflicts([]);
     setDecisions({});
 
-    // Countdown state'leri — tahmin varsa modal'da "geçen / tahmini" gösterilir.
-    setUploadEstimateSec(estimateSec);
+    // Upload modalı için: kaç doküman işleniyor + geçen süre sayacı başlat.
+    setUploadCount(files.length);
     setUploadStartMs(Date.now());
     setUploadElapsedSec(0);
 
@@ -1036,66 +1005,14 @@ function App() {
     }
   }
 
-  // Estimate bayrağı açıksa önce /documents/estimate çağrısı yapıp modal
-  // açılır; kapalıysa doğrudan doUpload çağrılır. Çağrı başarısız olursa
-  // fallback olarak yine doUpload'a düşer (kullanıcıyı bekletmek anlamsız).
-  async function requestEstimateOrUpload(
-    files: File[],
-    decisionsMap: Record<string, "overwrite" | "skip">,
-  ) {
-    if (!ingestEstimateEnabled) {
-      await doUpload(files, decisionsMap);
-      return;
-    }
-
-    try {
-      const formData = new FormData();
-      for (const f of files) formData.append("files", f);
-      formData.append("use_vlm", String(useVlm));
-
-      const res = await fetch(`${API}/documents/estimate`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (res.status === 404) {
-        // Bayrak backend tarafında kapandı — sessizce eski akışa düş.
-        setIngestEstimateEnabled(false);
-        await doUpload(files, decisionsMap);
-        return;
-      }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const estimate = (await res.json()) as EstimateData;
-      setPendingEstimate({ files, decisions: decisionsMap, estimate });
-    } catch (err) {
-      // Tahmin alamadık — kullanıcıyı durdurmadan upload'a devam et.
-      console.warn("Estimate alınamadı, direkt upload:", err);
-      await doUpload(files, decisionsMap);
-    }
-  }
-
-  function confirmEstimate() {
-    if (!pendingEstimate) return;
-    const { files, decisions: decs, estimate } = pendingEstimate;
-    setPendingEstimate(null);
-    doUpload(files, decs, estimate.total_seconds);
-  }
-
-  function cancelEstimate() {
-    setPendingEstimate(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }
-
   function confirmConflicts() {
     const files = pendingFiles;
     const decs = decisions;
-    // Çakışma onay modalını şimdi kapat — estimate aktıfse hemen ardından
-    // estimate modalı açılacak, kapalıysa direkt upload modalı görünür.
+    // Çakışma onay modalını kapat, doğrudan upload'a geç.
     setPendingFiles([]);
     setConflicts([]);
     setDecisions({});
-    requestEstimateOrUpload(files, decs);
+    doUpload(files, decs);
   }
 
   function cancelConflicts() {
@@ -1791,102 +1708,17 @@ function App() {
         </div>
       )}
 
-      {pendingEstimate && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 p-6 border border-slate-200">
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">Yükleme Tahmini</h3>
-            <p className="text-sm text-slate-600 mb-4">
-              Aşağıdaki dosyalar için tahmini işlem süresi:
-            </p>
-
-            <div className="bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 rounded-lg p-4 mb-4">
-              <div className="text-3xl font-semibold text-indigo-900 tabular-nums">
-                ~{formatDuration(pendingEstimate.estimate.total_seconds)}
-              </div>
-              <div className="text-xs text-indigo-700/80 mt-1">
-                {pendingEstimate.estimate.total_pages} sayfa
-                {pendingEstimate.estimate.use_vlm &&
-                  pendingEstimate.estimate.total_images > 0 && (
-                    <>
-                      {" · "}
-                      {pendingEstimate.estimate.total_images} görsel (VLM)
-                    </>
-                  )}
-                {!pendingEstimate.estimate.use_vlm && (
-                  <> · görseller atlanacak</>
-                )}
-              </div>
-            </div>
-
-            <ul className="space-y-1 max-h-48 overflow-y-auto mb-4 text-xs">
-              {pendingEstimate.estimate.files.map((f) => (
-                <li
-                  key={f.name}
-                  className="flex items-center justify-between gap-2 px-2 py-1 rounded hover:bg-slate-50"
-                >
-                  <span className="truncate flex-1 text-slate-700">
-                    {f.name}
-                  </span>
-                  <span className="text-slate-500 whitespace-nowrap tabular-nums">
-                    {f.pages}s
-                    {f.images > 0 && <> · {f.images}g</>}
-                    {" · ~"}
-                    {formatDuration(f.seconds)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-
-            {pendingEstimate.estimate.rejected &&
-              pendingEstimate.estimate.rejected.length > 0 && (
-                <div className="bg-red-50 border border-red-200 rounded-md p-2 mb-3 text-xs text-red-700">
-                  <div className="font-medium mb-1">Tahmin dışı kalanlar:</div>
-                  {pendingEstimate.estimate.rejected.map((r) => (
-                    <div key={r.name}>
-                      ✗ {r.name}: {r.reason}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-            <p className="text-xs text-slate-500 mb-3">
-              Tahmin yaklaşıktır; gerçek süre içeriğe göre ±%20 değişebilir.
-            </p>
-
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={cancelEstimate}
-                className="px-3 py-1.5 border border-slate-300 rounded-md text-sm hover:bg-slate-50 transition-colors"
-              >
-                İptal
-              </button>
-              <button
-                onClick={confirmEstimate}
-                className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
-              >
-                Devam Et
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {isUploading && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-2xl px-8 py-6 flex items-center gap-4 border border-slate-200">
             <div className="w-6 h-6 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
             <div>
-              <p className="font-medium text-slate-900">Dokümanlar işleniyor...</p>
-              {uploadEstimateSec !== null ? (
-                <p className="text-xs text-slate-500 mt-1 tabular-nums">
-                  Geçen: {formatDuration(uploadElapsedSec)} / Tahmini: ~
-                  {formatDuration(uploadEstimateSec)}
-                </p>
-              ) : (
-                <p className="text-xs text-slate-500 mt-1">
-                  PDF parse + VLM analizi + embedding. Bu dakikalar sürebilir.
-                </p>
-              )}
+              <p className="font-medium text-slate-900">
+                {uploadCount} doküman işleniyor…
+              </p>
+              <p className="text-xs text-slate-500 mt-1 tabular-nums">
+                Geçen süre: {formatDuration(uploadElapsedSec)}
+              </p>
             </div>
           </div>
         </div>
