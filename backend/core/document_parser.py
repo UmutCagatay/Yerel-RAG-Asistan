@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import re
@@ -902,6 +903,37 @@ class DocumentParser:
         return result_nodes
 
     # ──────────────────────────────────────────────────────────────────────────
+    # BÖLÜM 6 — Yol Yardımcısı
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _slugify_for_path(name: str) -> str:
+        """
+        Klasör adını ASCII-safe hale getirir.
+
+        Neden: PyMuPDF'in alt katmanındaki MuPDF (C) kütüphanesi Windows'ta
+        PNG kaydederken yolu sistem encoding'i (cp1254) ile açmaya çalışıyor;
+        'ö', 'ğ', 'ş' gibi karakterler içeren bir klasör verildiğinde
+        FzErrorSystem (code=2) hatası alınıyor. Bu nedenle temp_images altında
+        oluşturulan alt klasörün adını ASCII'ye düşürüyoruz. PDF dosyasının
+        kendi adı (file_path) DEĞİŞMEZ — sadece geçici görsel klasörü.
+        """
+        tr_map = str.maketrans({
+            "ç": "c", "Ç": "C",
+            "ğ": "g", "Ğ": "G",
+            "ı": "i", "İ": "I",
+            "ö": "o", "Ö": "O",
+            "ş": "s", "Ş": "S",
+            "ü": "u", "Ü": "U",
+        })
+        s = name.translate(tr_map)
+        # Geride kalan non-ASCII karakterleri ve boşluk/özel karakterleri at
+        s = re.sub(r"[^A-Za-z0-9._-]+", "_", s)
+        # Çift alt çizgileri tekleştir, baş/son alt çizgileri kırp
+        s = re.sub(r"_+", "_", s).strip("_.")
+        return s or "_unnamed"
+
+    # ──────────────────────────────────────────────────────────────────────────
     # ANA METOD
     # ──────────────────────────────────────────────────────────────────────────
 
@@ -925,7 +957,16 @@ class DocumentParser:
         log.info(f"Parse başlatıldı: {base_name}")
 
         name_without_ext = os.path.splitext(base_name)[0]
-        temp_img_dir = str(AppConfig.TEMP_IMAGES_DIR / name_without_ext)
+        # MuPDF Windows'ta non-ASCII yolları açamadığı için temp klasör adı
+        # ASCII'ye indirilir. PDF dosya yolu (file_path) olduğu gibi kalır.
+        safe_name = self._slugify_for_path(name_without_ext)
+        # Çakışma koruması: orijinal isimden 8-karakter deterministik hash.
+        # "Çalışma.pdf" ve "Calisma.pdf" gibi slug'ı eşleşen dosyalar farklı
+        # klasöre yazar; aynı PDF tekrar parse edilirse aynı klasöre düşer
+        # (eski görseller üzerine yazılır, orphan klasör üretmez).
+        hash_suffix = hashlib.md5(base_name.encode("utf-8")).hexdigest()[:8]
+        unique_dir = f"{safe_name}_{hash_suffix}"
+        temp_img_dir = str(AppConfig.TEMP_IMAGES_DIR / unique_dir)
         os.makedirs(temp_img_dir, exist_ok=True)
 
         # ── Adım 1 ───────────────────────────────────────────────────────────

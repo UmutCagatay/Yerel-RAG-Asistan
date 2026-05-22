@@ -79,10 +79,10 @@ class AppConfig:
     # kontrol çalışmasına dayanır. Doğrulama: VLM açık 448 vs 438.8 sn (%2),
     # VLM kapalı 46 vs 41.6 sn (%12). Hepsi saniye cinsinden.
     INGEST_VLM_LOAD_SECONDS: float = 2.0  # VLM motoru yüklenme
-    INGEST_PARSE_PER_PAGE: float = 0.3  # pymupdf4llm layout parse
-    INGEST_VLM_PER_IMAGE: float = 6.5  # filtre geçen görsel başına
+    INGEST_PARSE_PER_PAGE: float = 0.6  # pymupdf4llm layout parse
+    INGEST_VLM_PER_IMAGE: float = 5.5  # filtre geçen görsel başına
     INGEST_CHUNKER_OVERHEAD: float = 0.5  # dosya başı section + chunker
     INGEST_VRAM_TRANSITION: float = 1.0  # VLM unload + GC
     INGEST_JINA_LOAD_SECONDS: float = 2.0  # Embedding modeli yüklenme
-    INGEST_EMBED_PER_PAGE: float = 0.05  # sayfa bazlı embed (chunk≈page)
+    INGEST_EMBED_PER_PAGE: float = 0.15  # sayfa bazlı embed (chunk≈page)
     INGEST_DB_WRITE_BUFFER: float = 0.5  # catalog yazma + tahliye

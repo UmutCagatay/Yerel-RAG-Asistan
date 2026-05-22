@@ -97,11 +97,11 @@ function AssistantMessage({ content }: { content: string }) {
       {parts.map((part, i) => {
         if (part.type === "think") {
           return (
-            <details key={i} className="text-xs text-gray-500">
-              <summary className="cursor-pointer hover:text-gray-700 select-none">
+            <details key={i} className="text-xs text-slate-500">
+              <summary className="cursor-pointer hover:text-slate-700 select-none">
                 {part.complete ? "Düşünme sürecini gör" : "Düşünüyor..."}
               </summary>
-              <div className="mt-1 pl-3 border-l-2 border-gray-300 whitespace-pre-wrap text-gray-600">
+              <div className="mt-1 pl-3 border-l-2 border-slate-300 whitespace-pre-wrap text-slate-600">
                 {part.content.trim()}
               </div>
             </details>
@@ -136,14 +136,14 @@ function ScopeBadge({ scope }: { scope?: MessageScope }) {
   if (!scope) return null;
   if (scope.type === "document" && scope.file_name) {
     return (
-      <div className="text-xs text-gray-400 mt-1 text-right">
+      <div className="text-xs text-slate-400 mt-1 text-right">
         📄 {scope.file_name}
       </div>
     );
   }
   if (scope.type === "collection") {
     return (
-      <div className="text-xs text-gray-400 mt-1 text-right">
+      <div className="text-xs text-slate-400 mt-1 text-right">
         📁 tüm koleksiyon
       </div>
     );
@@ -1117,103 +1117,42 @@ function App() {
 
   return (
     <div className="flex flex-col h-screen">
-      <header className="border-b px-4 py-2 flex items-center gap-4 relative">
-        <h1 className="text-lg font-semibold">Yerel RAG Asistanı</h1>
+      <header className="border-b border-slate-200 bg-white px-5 py-3 flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm">
+            <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              <line x1="7" y1="9" x2="17" y2="9" />
+              <line x1="7" y1="13" x2="13" y2="13" />
+            </svg>
+          </div>
+          <h1 className="text-base font-semibold text-slate-900 tracking-tight">
+            Yerel RAG Asistanı
+          </h1>
+        </div>
         {selectedDoc && (
-          <span className="text-sm text-gray-700">
-            Seçili: <span className="font-medium">{selectedDoc}</span>
-          </span>
+          <>
+            <div className="h-4 w-px bg-slate-200" />
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-slate-500">Kapsam:</span>
+              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md font-medium border border-indigo-100">
+                📄 {selectedDoc}
+              </span>
+            </div>
+          </>
         )}
         {!selectedDoc && activeChatId && (
-          <span className="text-sm text-gray-500 italic">
-            Kapsam: tüm koleksiyon
-          </span>
+          <>
+            <div className="h-4 w-px bg-slate-200" />
+            <span className="text-xs text-slate-500 italic">
+              Kapsam: tüm koleksiyon
+            </span>
+          </>
         )}
-        <div className="ml-auto relative" ref={collectionMenuRef}>
-          <button
-            onClick={() => setShowCollectionMenu((v) => !v)}
-            disabled={isStreaming}
-            className="text-sm text-gray-700 hover:bg-gray-100 px-3 py-1 rounded flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={isStreaming ? "Sorgu sürüyor, bekleyin" : undefined}
-          >
-            Koleksiyon: <span className="font-medium">{collection || "—"}</span>
-            <span className="text-xs">▼</span>
-          </button>
-
-          {showCollectionMenu && (
-            <div className="absolute right-0 top-full mt-1 bg-white border rounded shadow-lg min-w-50 z-50">
-              <ul className="py-1">
-                {allCollections.map((name) => (
-                  <li
-                    key={name}
-                    className={`group flex items-center justify-between gap-2 px-3 py-1 text-sm hover:bg-gray-100 ${
-                      editingColName === name ? "" : "cursor-pointer"
-                    } ${
-                      name === collection ? "font-medium text-blue-600" : ""
-                    }`}
-                    onClick={() => {
-                      if (editingColName === name) return;
-                      handleSwitchCollection(name);
-                    }}
-                  >
-                    {editingColName === name ? (
-                      <input
-                        autoFocus
-                        type="text"
-                        value={editingColValue}
-                        onChange={(e) => setEditingColValue(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => {
-                          e.stopPropagation();
-                          if (e.key === "Enter") handleSubmitRenameCol();
-                          if (e.key === "Escape") handleCancelRenameCol();
-                        }}
-                        onBlur={handleSubmitRenameCol}
-                        className="flex-1 border rounded px-1 py-0 text-sm bg-white text-gray-900"
-                      />
-                    ) : (
-                      <span className="truncate flex-1">{name}</span>
-                    )}
-                    {editingColName !== name && name !== "default" && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleStartRenameCol(name);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-blue-600 text-xs px-1"
-                          title="Yeniden adlandır"
-                        >
-                          ✏
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteCollection(name);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600 text-xs px-1"
-                          title="Koleksiyonu sil"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    )}
-                  </li>
-                ))}
-                <li
-                  onClick={handleCreateCollection}
-                  className="border-t mt-1 px-3 py-1 text-sm cursor-pointer hover:bg-gray-100 text-blue-600"
-                >
-                  + Yeni Koleksiyon
-                </li>
-              </ul>
-            </div>
-          )}
-        </div>
       </header>
 
       {error && (
-        <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center justify-between text-sm">
+        <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center justify-between text-sm flex-shrink-0">
           <span className="text-red-900">
             Backend'e bağlanılamıyor — sunucu çalışıyor mu?{" "}
             <span className="text-red-700 text-xs">({error})</span>
@@ -1221,7 +1160,7 @@ function App() {
           <button
             onClick={fetchInitial}
             disabled={loading}
-            className="text-xs px-3 py-1 border border-red-300 text-red-900 rounded hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="text-xs px-3 py-1 border border-red-300 text-red-900 rounded-md hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? "Bağlanıyor..." : "Tekrar Dene"}
           </button>
@@ -1229,35 +1168,133 @@ function App() {
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-64 border-r flex flex-col overflow-hidden">
-          {/* Dokümanlar */}
-          <div className="p-4 border-b overflow-y-auto" style={{ maxHeight: "50%" }}>
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="font-semibold">Dokümanlar</h2>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading || isStreaming}
-                className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                title={
-                  isStreaming ? "Sorgu sürüyor, bekleyin" : "Doküman ekle"
-                }
-              >
-                {isUploading ? "..." : "+ Ekle"}
-              </button>
-            </div>
-            <label
-              className="flex items-center gap-1.5 text-xs text-gray-600 mb-2 cursor-pointer hover:text-gray-800 select-none"
-              title="Açık: tablo/şemalar da işlenir (yavaş). Kapalı: sadece metin (hızlı)."
+        <aside className="w-72 bg-slate-100 border-r border-slate-200 flex flex-col overflow-hidden flex-shrink-0">
+          {/* Koleksiyon picker — header'dan buraya taşındı */}
+          <div className="p-3 border-b border-slate-200 relative" ref={collectionMenuRef}>
+            <button
+              onClick={() => setShowCollectionMenu((v) => !v)}
+              disabled={isStreaming}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 hover:shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              title={isStreaming ? "Sorgu sürüyor, bekleyin" : "Koleksiyon değiştir"}
             >
-              <input
-                type="checkbox"
-                checked={useVlm}
-                onChange={(e) => setUseVlm(e.target.checked)}
-                disabled={isUploading}
-                className="cursor-pointer disabled:cursor-not-allowed"
-              />
-              <span>Görsel okuma</span>
-            </label>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-md bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 text-sm flex-shrink-0">
+                  📚
+                </div>
+                <div className="text-left min-w-0">
+                  <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                    Koleksiyon
+                  </div>
+                  <div className="text-sm font-medium text-slate-900 truncate">
+                    {collection || "—"}
+                  </div>
+                </div>
+              </div>
+              <svg
+                className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${showCollectionMenu ? "rotate-180" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {showCollectionMenu && (
+              <div className="absolute left-3 right-3 top-full mt-1.5 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
+                <ul className="py-1 max-h-64 overflow-y-auto">
+                  {allCollections.map((name) => (
+                    <li
+                      key={name}
+                      className={`group flex items-center justify-between gap-2 px-3 py-1.5 text-sm hover:bg-slate-50 ${
+                        editingColName === name ? "" : "cursor-pointer"
+                      } ${
+                        name === collection
+                          ? "font-medium text-indigo-700 bg-indigo-50/60"
+                          : "text-slate-700"
+                      }`}
+                      onClick={() => {
+                        if (editingColName === name) return;
+                        handleSwitchCollection(name);
+                      }}
+                    >
+                      {editingColName === name ? (
+                        <input
+                          autoFocus
+                          type="text"
+                          value={editingColValue}
+                          onChange={(e) => setEditingColValue(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Enter") handleSubmitRenameCol();
+                            if (e.key === "Escape") handleCancelRenameCol();
+                          }}
+                          onBlur={handleSubmitRenameCol}
+                          className="flex-1 border border-slate-300 rounded px-1.5 py-0.5 text-sm bg-white text-slate-900 focus:outline-none focus:border-indigo-400"
+                        />
+                      ) : (
+                        <span className="truncate flex-1">{name}</span>
+                      )}
+                      {editingColName !== name && name !== "default" && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleStartRenameCol(name);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-600 text-xs px-1 transition-colors"
+                            title="Yeniden adlandır"
+                          >
+                            ✏
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteCollection(name);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 text-xs px-1 transition-colors"
+                            title="Koleksiyonu sil"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                  <li
+                    onClick={handleCreateCollection}
+                    className="border-t border-slate-100 mt-1 px-3 py-1.5 text-sm cursor-pointer hover:bg-slate-50 text-indigo-600 font-medium"
+                  >
+                    + Yeni Koleksiyon
+                  </li>
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {/* Eylemler: Doküman Ekle + görsel okuma toggle */}
+          <div className="px-3 py-3 border-b border-slate-200 space-y-3">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading || isStreaming}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors shadow-sm"
+              title={isStreaming ? "Sorgu sürüyor, bekleyin" : "Doküman ekle"}
+            >
+              {isUploading ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Yükleniyor...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                  </svg>
+                  <span>Doküman Ekle</span>
+                </>
+              )}
+            </button>
             <input
               ref={fileInputRef}
               type="file"
@@ -1269,252 +1306,318 @@ function App() {
               }}
             />
 
-            {loading && <p className="text-sm text-gray-500">Yükleniyor...</p>}
-            {!loading && !error && docs.length === 0 && (
-              <p className="text-sm text-gray-500">Doküman yok.</p>
-            )}
-            {!loading && !error && docs.length > 0 && (
-              <ul className="space-y-1 text-sm">
-                {docs.map((doc, index) => (
-                  <li key={doc.file_name} className="rounded">
-                    <div
-                      className={`group flex items-center justify-between gap-2 px-2 py-1 rounded ${
-                        isStreaming
-                          ? "opacity-60 cursor-not-allowed"
-                          : "cursor-pointer"
-                      } ${
-                        selectedDoc === doc.file_name
-                          ? "bg-blue-100 text-blue-900"
-                          : !isStreaming
-                            ? "hover:bg-gray-100"
-                            : ""
-                      }`}
-                      onClick={() => {
-                        if (isStreaming) return;
-                        if (editingDocName === doc.file_name) return;
-                        setSelectedDoc((prev) =>
-                          prev === doc.file_name ? null : doc.file_name,
-                        );
-                      }}
-                      onDoubleClick={(e) => {
-                        if (isStreaming) return;
-                        e.stopPropagation();
-                        handleStartRenameDoc(doc.file_name);
-                      }}
-                      title={
-                        isStreaming
-                          ? "Sorgu sürüyor, bekleyin"
-                          : "Çift tıklayarak yeniden adlandır"
-                      }
-                    >
-                      {editingDocName === doc.file_name ? (
-                        <input
-                          autoFocus
-                          type="text"
-                          value={editingDocValue}
-                          onChange={(e) => setEditingDocValue(e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleSubmitRenameDoc();
-                            if (e.key === "Escape") handleCancelRenameDoc();
-                          }}
-                          onBlur={handleSubmitRenameDoc}
-                          className="flex-1 border rounded px-1 py-0 text-sm bg-white text-gray-900"
-                        />
-                      ) : (
-                        <span className="truncate">{doc.file_name}</span>
-                      )}
-                      {editingDocName !== doc.file_name && (
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleReorderDoc(index, -1);
-                            }}
-                            disabled={index === 0 || isStreaming}
-                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-800 text-xs px-1 disabled:opacity-0"
-                            title="Yukarı taşı"
-                          >
-                            ↑
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleReorderDoc(index, 1);
-                            }}
-                            disabled={
-                              index === docs.length - 1 || isStreaming
-                            }
-                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-800 text-xs px-1 disabled:opacity-0"
-                            title="Aşağı taşı"
-                          >
-                            ↓
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleStartMoveDoc(doc.file_name);
-                            }}
-                            disabled={isStreaming}
-                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-blue-600 text-xs px-1 disabled:opacity-0"
-                            title="Başka koleksiyona taşı"
-                          >
-                            →
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteDoc(doc.file_name);
-                            }}
-                            disabled={
-                              deletingDoc === doc.file_name || isStreaming
-                            }
-                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600 text-xs px-1 disabled:opacity-0"
-                            title="Sil"
-                          >
-                            {deletingDoc === doc.file_name ? "..." : "×"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    {movingDoc === doc.file_name && (
-                      <div className="mt-1 mx-2 mb-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs">
-                        <div className="text-gray-600 mb-1">Şuraya taşı:</div>
-                        {allCollections.filter((c) => c !== collection)
-                          .length === 0 ? (
-                          <div className="text-gray-500 italic">
-                            Başka koleksiyon yok.
-                          </div>
-                        ) : (
-                          <div className="flex flex-wrap gap-1">
-                            {allCollections
-                              .filter((c) => c !== collection)
-                              .map((c) => (
-                                <button
-                                  key={c}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleMoveDoc(doc.file_name, c);
-                                  }}
-                                  className="px-2 py-0.5 border border-gray-300 rounded bg-white hover:bg-blue-50 hover:border-blue-300"
-                                >
-                                  {c}
-                                </button>
-                              ))}
-                          </div>
-                        )}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCancelMoveDoc();
-                          }}
-                          className="mt-1 text-gray-500 hover:text-gray-700"
-                        >
-                          İptal
-                        </button>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+            <label
+              className="flex items-center justify-between px-0.5 cursor-pointer select-none group"
+              title="Açık: tablo/şemalar da işlenir (yavaş). Kapalı: sadece metin (hızlı)."
+            >
+              <div className="flex items-center gap-2 text-sm text-slate-700 group-hover:text-slate-900">
+                <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span>Görsel okuma</span>
+              </div>
+              <div className="relative inline-flex items-center">
+                <input
+                  type="checkbox"
+                  checked={useVlm}
+                  onChange={(e) => setUseVlm(e.target.checked)}
+                  disabled={isUploading}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-slate-300 rounded-full peer-checked:bg-indigo-600 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed transition-colors" />
+                <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4 shadow-sm pointer-events-none" />
+              </div>
+            </label>
           </div>
 
-          {/* Sohbetler */}
-          <div className="p-4 flex-1 overflow-y-auto">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="font-semibold">Sohbetler</h2>
-              <button
-                onClick={handleNewChat}
-                disabled={isStreaming}
-                className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                title={isStreaming ? "Sorgu sürüyor, bekleyin" : "Yeni sohbet aç"}
-              >
-                + Yeni
-              </button>
+          {/* Dokümanlar + Sohbetler — flex tabanlı bölüşme */}
+          <div className="flex flex-col flex-1 min-h-0">
+            {/* Dokümanlar */}
+            <div className="flex flex-col flex-1 min-h-0">
+              <div className="px-3 pt-3 pb-1.5 flex items-center justify-between flex-shrink-0">
+                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                  Dokümanlar
+                </span>
+                {!loading && docs.length > 0 && (
+                  <span className="text-[10px] text-slate-400 font-medium tabular-nums">
+                    {docs.length}
+                  </span>
+                )}
+              </div>
+              <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-0">
+                {loading && (
+                  <p className="text-xs text-slate-500 px-2 py-1">Yükleniyor...</p>
+                )}
+                {!loading && !error && docs.length === 0 && (
+                  <div className="text-xs text-slate-400 px-2 py-3 text-center italic">
+                    Henüz doküman yok.
+                  </div>
+                )}
+                {!loading && !error && docs.length > 0 && (
+                  <ul className="space-y-0.5 text-sm">
+                    {docs.map((doc, index) => (
+                      <li key={doc.file_name}>
+                        <div
+                          className={`group flex items-center justify-between gap-2 px-2 py-1.5 rounded-md border transition-colors ${
+                            isStreaming
+                              ? "opacity-60 cursor-not-allowed"
+                              : "cursor-pointer"
+                          } ${
+                            selectedDoc === doc.file_name
+                              ? "bg-white text-indigo-700 border-indigo-200 shadow-sm"
+                              : !isStreaming
+                                ? "text-slate-700 hover:bg-white/70 border-transparent"
+                                : "text-slate-700 border-transparent"
+                          }`}
+                          onClick={() => {
+                            if (isStreaming) return;
+                            if (editingDocName === doc.file_name) return;
+                            setSelectedDoc((prev) =>
+                              prev === doc.file_name ? null : doc.file_name,
+                            );
+                          }}
+                          onDoubleClick={(e) => {
+                            if (isStreaming) return;
+                            e.stopPropagation();
+                            handleStartRenameDoc(doc.file_name);
+                          }}
+                          title={
+                            isStreaming
+                              ? "Sorgu sürüyor, bekleyin"
+                              : "Çift tıklayarak yeniden adlandır"
+                          }
+                        >
+                          {editingDocName === doc.file_name ? (
+                            <input
+                              autoFocus
+                              type="text"
+                              value={editingDocValue}
+                              onChange={(e) => setEditingDocValue(e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSubmitRenameDoc();
+                                if (e.key === "Escape") handleCancelRenameDoc();
+                              }}
+                              onBlur={handleSubmitRenameDoc}
+                              className="flex-1 border border-slate-300 rounded px-1.5 py-0 text-sm bg-white text-slate-900 focus:outline-none focus:border-indigo-400"
+                            />
+                          ) : (
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <span className="text-slate-400 text-xs flex-shrink-0">📄</span>
+                              <span className="truncate">{doc.file_name}</span>
+                            </div>
+                          )}
+                          {editingDocName !== doc.file_name && (
+                            <div className="flex items-center gap-0.5 flex-shrink-0">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReorderDoc(index, -1);
+                                }}
+                                disabled={index === 0 || isStreaming}
+                                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 text-xs px-1 disabled:opacity-0 transition-colors"
+                                title="Yukarı taşı"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReorderDoc(index, 1);
+                                }}
+                                disabled={
+                                  index === docs.length - 1 || isStreaming
+                                }
+                                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 text-xs px-1 disabled:opacity-0 transition-colors"
+                                title="Aşağı taşı"
+                              >
+                                ↓
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStartMoveDoc(doc.file_name);
+                                }}
+                                disabled={isStreaming}
+                                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-600 text-xs px-1 disabled:opacity-0 transition-colors"
+                                title="Başka koleksiyona taşı"
+                              >
+                                →
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteDoc(doc.file_name);
+                                }}
+                                disabled={
+                                  deletingDoc === doc.file_name || isStreaming
+                                }
+                                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 text-xs px-1 disabled:opacity-0 transition-colors"
+                                title="Sil"
+                              >
+                                {deletingDoc === doc.file_name ? "..." : "×"}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        {movingDoc === doc.file_name && (
+                          <div className="mt-1 mx-1 mb-1 px-2 py-1.5 bg-white border border-slate-200 rounded-md text-xs shadow-sm">
+                            <div className="text-slate-600 mb-1.5 font-medium">Şuraya taşı:</div>
+                            {allCollections.filter((c) => c !== collection)
+                              .length === 0 ? (
+                              <div className="text-slate-400 italic">
+                                Başka koleksiyon yok.
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap gap-1">
+                                {allCollections
+                                  .filter((c) => c !== collection)
+                                  .map((c) => (
+                                    <button
+                                      key={c}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleMoveDoc(doc.file_name, c);
+                                      }}
+                                      className="px-2 py-0.5 border border-slate-300 rounded bg-white hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors"
+                                    >
+                                      {c}
+                                    </button>
+                                  ))}
+                              </div>
+                            )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCancelMoveDoc();
+                              }}
+                              className="mt-1.5 text-slate-500 hover:text-slate-700"
+                            >
+                              İptal
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
-            {chats.length === 0 && (
-              <p className="text-sm text-gray-500">Henüz sohbet yok.</p>
-            )}
-            {chats.length > 0 && (
-              <ul className="space-y-1 text-sm">
-                {chats.map((chat) => (
-                  <li
-                    key={chat.id}
-                    className={`group flex items-center justify-between gap-2 px-2 py-1 rounded ${
-                      isStreaming && chat.id !== activeChatId
-                        ? "opacity-50 cursor-not-allowed"
-                        : "cursor-pointer"
-                    } ${
-                      activeChatId === chat.id
-                        ? "bg-blue-100 text-blue-900"
-                        : !isStreaming
-                          ? "hover:bg-gray-100"
-                          : ""
-                    }`}
-                    onClick={() => {
-                      if (isStreaming) return;
-                      if (editingTitleId !== chat.id) handleSelectChat(chat.id);
-                    }}
-                    onDoubleClick={(e) => {
-                      if (isStreaming) return;
-                      e.stopPropagation();
-                      handleStartRename(chat);
-                    }}
-                    title={
-                      isStreaming
-                        ? "Sorgu sürüyor, bekleyin"
-                        : "Çift tıklayarak başlığı düzenle"
-                    }
+
+            {/* Sohbetler */}
+            <div className="flex flex-col flex-1 min-h-0 border-t border-slate-200">
+              <div className="px-3 pt-3 pb-1.5 flex items-center justify-between flex-shrink-0">
+                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                  Sohbetler
+                </span>
+                <div className="flex items-center gap-2">
+                  {chats.length > 0 && (
+                    <span className="text-[10px] text-slate-400 font-medium tabular-nums">
+                      {chats.length}
+                    </span>
+                  )}
+                  <button
+                    onClick={handleNewChat}
+                    disabled={isStreaming}
+                    className="text-slate-400 hover:text-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title={isStreaming ? "Sorgu sürüyor, bekleyin" : "Yeni sohbet"}
                   >
-                    {editingTitleId === chat.id ? (
-                      <input
-                        autoFocus
-                        type="text"
-                        value={editingTitleValue}
-                        onChange={(e) => setEditingTitleValue(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleSubmitRename();
-                          if (e.key === "Escape") handleCancelRename();
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-0">
+                {chats.length === 0 && (
+                  <div className="text-xs text-slate-400 px-2 py-3 text-center italic">
+                    Henüz sohbet yok.
+                  </div>
+                )}
+                {chats.length > 0 && (
+                  <ul className="space-y-0.5 text-sm">
+                    {chats.map((chat) => (
+                      <li
+                        key={chat.id}
+                        className={`group flex items-center justify-between gap-2 px-2 py-1.5 rounded-md border transition-colors ${
+                          isStreaming && chat.id !== activeChatId
+                            ? "opacity-50 cursor-not-allowed"
+                            : "cursor-pointer"
+                        } ${
+                          activeChatId === chat.id
+                            ? "bg-white text-indigo-700 border-indigo-200 shadow-sm"
+                            : !isStreaming
+                              ? "text-slate-700 hover:bg-white/70 border-transparent"
+                              : "text-slate-700 border-transparent"
+                        }`}
+                        onClick={() => {
+                          if (isStreaming) return;
+                          if (editingTitleId !== chat.id) handleSelectChat(chat.id);
                         }}
-                        onBlur={handleSubmitRename}
-                        className="flex-1 border rounded px-1 py-0 text-sm bg-white text-gray-900"
-                      />
-                    ) : (
-                      <span className="truncate flex-1">{chat.title}</span>
-                    )}
-                    {editingTitleId !== chat.id && (
-                      <button
-                        onClick={(e) => {
+                        onDoubleClick={(e) => {
+                          if (isStreaming) return;
                           e.stopPropagation();
-                          handleDeleteChat(chat.id);
+                          handleStartRename(chat);
                         }}
-                        disabled={isStreaming}
-                        className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600 text-xs px-1 disabled:opacity-0"
-                        title="Sohbeti sil"
+                        title={
+                          isStreaming
+                            ? "Sorgu sürüyor, bekleyin"
+                            : "Çift tıklayarak başlığı düzenle"
+                        }
                       >
-                        ×
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+                        {editingTitleId === chat.id ? (
+                          <input
+                            autoFocus
+                            type="text"
+                            value={editingTitleValue}
+                            onChange={(e) => setEditingTitleValue(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleSubmitRename();
+                              if (e.key === "Escape") handleCancelRename();
+                            }}
+                            onBlur={handleSubmitRename}
+                            className="flex-1 border border-slate-300 rounded px-1.5 py-0 text-sm bg-white text-slate-900 focus:outline-none focus:border-indigo-400"
+                          />
+                        ) : (
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span className="text-slate-400 text-xs flex-shrink-0">💬</span>
+                            <span className="truncate">{chat.title}</span>
+                          </div>
+                        )}
+                        {editingTitleId !== chat.id && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteChat(chat.id);
+                            }}
+                            disabled={isStreaming}
+                            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 text-xs px-1 disabled:opacity-0 transition-colors"
+                            title="Sohbeti sil"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
           </div>
         </aside>
 
-        <main className="flex-1 flex flex-col">
+        <main className="flex-1 flex flex-col bg-white">
           {(activeChat || messages.length > 0) && (
-            <div className="border-b px-4 py-1 flex items-center justify-between">
-              <span className="text-sm text-gray-600 truncate">
+            <div className="border-b border-slate-200 bg-white px-4 py-1.5 flex items-center justify-between flex-shrink-0">
+              <span className="text-sm text-slate-700 truncate">
                 {activeChat ? activeChat.title : "Yeni Sohbet"}
               </span>
               {messages.length > 0 && (
                 <button
                   onClick={handleNewChat}
                   disabled={isStreaming}
-                  className="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="text-xs text-slate-600 hover:text-indigo-600 px-2 py-1 rounded hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   title={isStreaming ? "Sorgu sürüyor, bekleyin" : "Yeni sohbet"}
                 >
                   + Yeni Sohbet
@@ -1528,18 +1631,28 @@ function App() {
             className="flex-1 overflow-y-auto p-4 space-y-3"
           >
             {messages.length === 0 && (
-              <p className="text-sm text-gray-400 text-center mt-8">
-                {selectedDoc
-                  ? "Soru yazıp gönderebilirsin."
-                  : "Bir doküman seç ya da seçmeden tüm koleksiyonda sor."}
-              </p>
+              <div className="flex flex-col items-center justify-center mt-16 text-center px-6">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-xl mb-3 shadow-md">
+                  💬
+                </div>
+                <p className="text-sm text-slate-700 font-medium">
+                  {selectedDoc
+                    ? `'${selectedDoc}' içinde soru sorabilirsin.`
+                    : "Sohbete başla."}
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {selectedDoc
+                    ? "Doküman seçimini kaldırarak tüm koleksiyonda da arayabilirsin."
+                    : "Bir doküman seç ya da seçmeden tüm koleksiyonda sor."}
+                </p>
+              </div>
             )}
             {messages.map((msg, i) => {
               const isLastStreaming = isStreaming && i === messages.length - 1;
               if (msg.role === "user") {
                 return (
                   <div key={i} className="max-w-xl ml-auto">
-                    <div className="bg-blue-500 text-white px-3 py-2 rounded-lg whitespace-pre-wrap">
+                    <div className="bg-gradient-to-br from-indigo-600 to-violet-700 text-white px-3.5 py-2 rounded-2xl rounded-tr-md whitespace-pre-wrap shadow-md shadow-indigo-900/20">
                       {msg.content}
                     </div>
                     <ScopeBadge scope={msg.scope} />
@@ -1549,12 +1662,16 @@ function App() {
               return (
                 <div
                   key={i}
-                  className="max-w-xl bg-gray-100 px-3 py-2 rounded-lg"
+                  className="max-w-xl bg-slate-50 border border-slate-200 text-slate-800 px-3.5 py-2 rounded-2xl rounded-tl-md"
                 >
                   {msg.content ? (
                     <AssistantMessage content={msg.content} />
                   ) : isLastStreaming ? (
-                    <span className="text-gray-500">...</span>
+                    <span className="text-slate-400 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" />
+                      <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" style={{ animationDelay: "150ms" }} />
+                      <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" style={{ animationDelay: "300ms" }} />
+                    </span>
                   ) : null}
                 </div>
               );
@@ -1562,7 +1679,7 @@ function App() {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="border-t p-4 flex gap-2">
+          <div className="border-t border-slate-200 bg-white p-3 flex gap-2 flex-shrink-0">
             <input
               type="text"
               value={input}
@@ -1579,12 +1696,12 @@ function App() {
                   ? `'${selectedDoc}' içinde sor...`
                   : "Tüm koleksiyonda sor..."
               }
-              className="flex-1 border rounded px-3 py-2 disabled:bg-gray-100"
+              className="flex-1 bg-white border border-slate-300 rounded-lg px-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:cursor-not-allowed transition-all"
             />
             <button
               onClick={handleSend}
               disabled={!input.trim() || isStreaming}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors shadow-sm"
             >
               {isStreaming ? "..." : "Gönder"}
             </button>
@@ -1593,10 +1710,10 @@ function App() {
       </div>
 
       {conflicts.length > 0 && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold mb-2">Çakışan Dosyalar</h3>
-            <p className="text-sm text-gray-600 mb-4">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 p-6 border border-slate-200">
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">Çakışan Dosyalar</h3>
+            <p className="text-sm text-slate-600 mb-4">
               Aşağıdaki dosyalar koleksiyonda zaten var. Her biri için ne
               yapılacağını seç.
             </p>
@@ -1604,13 +1721,13 @@ function App() {
             <div className="flex gap-2 mb-3 text-xs">
               <button
                 onClick={() => setAllDecisions("overwrite")}
-                className="px-2 py-1 border rounded hover:bg-gray-50"
+                className="px-2.5 py-1 border border-slate-300 rounded-md hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors"
               >
                 Tümüne üzerine yaz
               </button>
               <button
                 onClick={() => setAllDecisions("skip")}
-                className="px-2 py-1 border rounded hover:bg-gray-50"
+                className="px-2.5 py-1 border border-slate-300 rounded-md hover:bg-slate-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors"
               >
                 Tümünü atla
               </button>
@@ -1622,7 +1739,7 @@ function App() {
                   key={name}
                   className="flex items-center justify-between gap-2"
                 >
-                  <span className="text-sm truncate flex-1">{name}</span>
+                  <span className="text-sm text-slate-700 truncate flex-1">{name}</span>
                   <div className="flex gap-1">
                     <button
                       onClick={() =>
@@ -1631,10 +1748,10 @@ function App() {
                           [name]: "overwrite",
                         }))
                       }
-                      className={`text-xs px-2 py-1 rounded ${
+                      className={`text-xs px-2 py-1 rounded-md transition-colors ${
                         decisions[name] === "overwrite"
-                          ? "bg-blue-500 text-white"
-                          : "border hover:bg-gray-50"
+                          ? "bg-indigo-600 text-white"
+                          : "border border-slate-300 hover:bg-slate-50"
                       }`}
                     >
                       Üzerine yaz
@@ -1643,10 +1760,10 @@ function App() {
                       onClick={() =>
                         setDecisions((prev) => ({ ...prev, [name]: "skip" }))
                       }
-                      className={`text-xs px-2 py-1 rounded ${
+                      className={`text-xs px-2 py-1 rounded-md transition-colors ${
                         decisions[name] === "skip"
-                          ? "bg-blue-500 text-white"
-                          : "border hover:bg-gray-50"
+                          ? "bg-indigo-600 text-white"
+                          : "border border-slate-300 hover:bg-slate-50"
                       }`}
                     >
                       Atla
@@ -1659,13 +1776,13 @@ function App() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={cancelConflicts}
-                className="px-3 py-1 border rounded hover:bg-gray-50"
+                className="px-3 py-1.5 border border-slate-300 rounded-md text-sm hover:bg-slate-50 transition-colors"
               >
                 İptal
               </button>
               <button
                 onClick={confirmConflicts}
-                className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
               >
                 Devam Et
               </button>
@@ -1675,18 +1792,18 @@ function App() {
       )}
 
       {pendingEstimate && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold mb-2">Yükleme Tahmini</h3>
-            <p className="text-sm text-gray-600 mb-4">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 p-6 border border-slate-200">
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">Yükleme Tahmini</h3>
+            <p className="text-sm text-slate-600 mb-4">
               Aşağıdaki dosyalar için tahmini işlem süresi:
             </p>
 
-            <div className="bg-gray-50 rounded p-3 mb-4">
-              <div className="text-2xl font-semibold">
+            <div className="bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 rounded-lg p-4 mb-4">
+              <div className="text-3xl font-semibold text-indigo-900 tabular-nums">
                 ~{formatDuration(pendingEstimate.estimate.total_seconds)}
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-indigo-700/80 mt-1">
                 {pendingEstimate.estimate.total_pages} sayfa
                 {pendingEstimate.estimate.use_vlm &&
                   pendingEstimate.estimate.total_images > 0 && (
@@ -1705,12 +1822,12 @@ function App() {
               {pendingEstimate.estimate.files.map((f) => (
                 <li
                   key={f.name}
-                  className="flex items-center justify-between gap-2"
+                  className="flex items-center justify-between gap-2 px-2 py-1 rounded hover:bg-slate-50"
                 >
-                  <span className="truncate flex-1 text-gray-700">
+                  <span className="truncate flex-1 text-slate-700">
                     {f.name}
                   </span>
-                  <span className="text-gray-500 whitespace-nowrap">
+                  <span className="text-slate-500 whitespace-nowrap tabular-nums">
                     {f.pages}s
                     {f.images > 0 && <> · {f.images}g</>}
                     {" · ~"}
@@ -1722,7 +1839,7 @@ function App() {
 
             {pendingEstimate.estimate.rejected &&
               pendingEstimate.estimate.rejected.length > 0 && (
-                <div className="bg-red-50 rounded p-2 mb-3 text-xs text-red-700">
+                <div className="bg-red-50 border border-red-200 rounded-md p-2 mb-3 text-xs text-red-700">
                   <div className="font-medium mb-1">Tahmin dışı kalanlar:</div>
                   {pendingEstimate.estimate.rejected.map((r) => (
                     <div key={r.name}>
@@ -1732,20 +1849,20 @@ function App() {
                 </div>
               )}
 
-            <p className="text-xs text-gray-500 mb-3">
+            <p className="text-xs text-slate-500 mb-3">
               Tahmin yaklaşıktır; gerçek süre içeriğe göre ±%20 değişebilir.
             </p>
 
             <div className="flex justify-end gap-2">
               <button
                 onClick={cancelEstimate}
-                className="px-3 py-1 border rounded hover:bg-gray-50"
+                className="px-3 py-1.5 border border-slate-300 rounded-md text-sm hover:bg-slate-50 transition-colors"
               >
                 İptal
               </button>
               <button
                 onClick={confirmEstimate}
-                className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
               >
                 Devam Et
               </button>
@@ -1755,18 +1872,18 @@ function App() {
       )}
 
       {isUploading && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl px-8 py-6 flex items-center gap-4">
-            <div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl px-8 py-6 flex items-center gap-4 border border-slate-200">
+            <div className="w-6 h-6 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
             <div>
-              <p className="font-medium">Dokümanlar işleniyor...</p>
+              <p className="font-medium text-slate-900">Dokümanlar işleniyor...</p>
               {uploadEstimateSec !== null ? (
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-slate-500 mt-1 tabular-nums">
                   Geçen: {formatDuration(uploadElapsedSec)} / Tahmini: ~
                   {formatDuration(uploadEstimateSec)}
                 </p>
               ) : (
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   PDF parse + VLM analizi + embedding. Bu dakikalar sürebilir.
                 </p>
               )}
@@ -1778,18 +1895,18 @@ function App() {
       {toast && (
         <div className="fixed bottom-4 right-4 z-50">
           <div
-            className={`px-4 py-3 rounded-lg shadow-lg max-w-md text-sm flex items-start gap-3 ${
+            className={`px-4 py-3 rounded-lg shadow-lg max-w-md text-sm flex items-start gap-3 border ${
               toast.type === "success"
-                ? "bg-green-50 border border-green-200 text-green-900"
+                ? "bg-green-50 border-green-200 text-green-900"
                 : toast.type === "error"
-                  ? "bg-red-50 border border-red-200 text-red-900"
-                  : "bg-blue-50 border border-blue-200 text-blue-900"
+                  ? "bg-red-50 border-red-200 text-red-900"
+                  : "bg-indigo-50 border-indigo-200 text-indigo-900"
             }`}
           >
             <span className="flex-1 whitespace-pre-line">{toast.message}</span>
             <button
               onClick={() => setToast(null)}
-              className="text-gray-500 hover:text-gray-700 text-xs"
+              className="text-slate-400 hover:text-slate-700 text-xs transition-colors"
             >
               ×
             </button>
