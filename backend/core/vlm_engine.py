@@ -17,7 +17,12 @@ from PIL import Image
 log = logging.getLogger(__name__)
 
 _PATCH_SIZE: int = 32
-_VLM_MAX_PIXELS: int = 1_310_720
+# Ölçümle bulunan değer. Eski 1_310_720 fazla düşüktü: yoğun görselleri
+# (tablo/şema) zorlayıp modele fazla token ürettiriyor, net YAVAŞLATIYORdu.
+# 3M'de yoğun görseller belirgin hızlandı, zaten okunan görsellerde fark yok.
+# Daha yükseğe çıkmanın bu korpusta kazancı yok (görseller 3M'i geçmiyor),
+# sınırsız ise OOM/kuyruk riski açar — 3M dengeli üst sınır.
+_VLM_MAX_PIXELS: int = 3_000_000
 
 
 class VLMEngine:
@@ -140,6 +145,19 @@ class VLMEngine:
                 max_tokens=AppConfig.VLM_MAX_TOKENS,
                 temperature=AppConfig.VLM_TEMPERATURE,
                 repeat_penalty=1.08,
+                # DRY (Don't Repeat Yourself): tekrar eden DİZİLERİ cezalandırır,
+                # tek token'ları değil. Tablo olmayan fotoğraf/diyagramlarda
+                # modelin aynı cümleyi tavana (1536 tok) kadar tekrarlamasını
+                # engeller. "\n" varsayılan sequence breaker olduğu için tablo
+                # satırları etkilenmez; sadece peş peşe tekrarlayan paragraflar kırılır.
+                # allowed_length=2: 2 token'dan uzun tekrar dizileri cezalanır.
+                # penalty_last_n=-1: tüm bağlamı tara. ÖNEMLİ — varsayılanı 0'dır ve
+                # llama.cpp'de 0 = DRY tamamen kapalı. Bunu set etmezsek diğer dry_*
+                # parametreleri etkisiz kalır (no-op).
+                dry_multiplier=0.8,
+                dry_base=1.75,
+                dry_allowed_length=2,
+                dry_penalty_last_n=-1,
                 stop=["[ANALİZ_BİTTİ]"],
             )
             inf_duration = time.time() - inf_start
@@ -147,7 +165,21 @@ class VLMEngine:
             content = response["choices"][0]["message"]["content"].strip()
             content = content.replace("[ANALİZ_BİTTİ]", "").strip()
 
-            log.debug(f"      Inference: {inf_duration:.2f}s")
+            # Çıktı uzunluğu ölçümü (geçici teşhis): decode süresinin asıl
+            # maliyeti üretilen token sayısı. usage llama.cpp'den gelir;
+            # completion_tokens = decode edilen token. Süre + token + tok/s
+            # birlikte loglanınca 20 sn'lik görsellerin gerçek dolu içerik mi
+            # yoksa şişkin/tekrarlı üretim mi olduğu ayırt edilebiliyor.
+            usage = response.get("usage") or {}
+            out_tok = usage.get("completion_tokens")
+            in_tok = usage.get("prompt_tokens")
+            tok_per_s = (out_tok / inf_duration) if out_tok and inf_duration else None
+            log.debug(
+                f"      Inference: {inf_duration:.2f}s | "
+                f"prompt_tok: {in_tok} | output_tok: {out_tok} | "
+                f"output_chars: {len(content)}"
+                + (f" | {tok_per_s:.1f} tok/s" if tok_per_s else "")
+            )
 
             if not content:
                 log.warning(f"Model boş içerik döndürdü ({img_name})")
