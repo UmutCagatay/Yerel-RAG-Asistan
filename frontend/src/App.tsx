@@ -161,8 +161,6 @@ function App() {
   const [deletingDoc, setDeletingDoc] = useState<string | null>(null);
   const [editingDocName, setEditingDocName] = useState<string | null>(null);
   const [editingDocValue, setEditingDocValue] = useState<string>("");
-  // Taşıma menüsü açık olan doküman — li'nin altına hedef listesi açılır
-  const [movingDoc, setMovingDoc] = useState<string | null>(null);
   // VLM (görsel okuma) toggle — default açık.
   // Kapalıyken upload hızlı (~5-10sn VLM yükleme + görsel başı ~10sn atlanır).
   const [useVlm, setUseVlm] = useState<boolean>(true);
@@ -183,6 +181,50 @@ function App() {
   const [uploadStartMs, setUploadStartMs] = useState<number | null>(null);
   const [uploadElapsedSec, setUploadElapsedSec] = useState<number>(0);
   const [toast, setToast] = useState<ToastMsg | null>(null);
+
+  // Onay kutusu — native confirm() yerine kendi modal'ımız.
+  // Promise tabanlı: askConfirm(...) çağrılır, kullanıcı butona basınca
+  // resolve edilir. Böylece "localhost:1420 şunu diyor" öneki kalmaz.
+  const [confirmState, setConfirmState] = useState<{
+    message: string;
+    confirmLabel: string;
+    resolve: (ok: boolean) => void;
+  } | null>(null);
+
+  function askConfirm(message: string, confirmLabel = "Sil"): Promise<boolean> {
+    return new Promise((resolve) => {
+      setConfirmState({ message, confirmLabel, resolve });
+    });
+  }
+
+  function resolveConfirm(ok: boolean) {
+    if (confirmState) confirmState.resolve(ok);
+    setConfirmState(null);
+  }
+
+  // Metin girişli onay kutusu — native prompt() yerine. Yine Promise tabanlı;
+  // resolve(değer) ya da iptalde resolve(null).
+  const [promptState, setPromptState] = useState<{
+    message: string;
+    value: string;
+    submitLabel: string;
+    resolve: (value: string | null) => void;
+  } | null>(null);
+
+  function askPrompt(
+    message: string,
+    defaultValue = "",
+    submitLabel = "Tamam",
+  ): Promise<string | null> {
+    return new Promise((resolve) => {
+      setPromptState({ message, value: defaultValue, submitLabel, resolve });
+    });
+  }
+
+  function resolvePrompt(value: string | null) {
+    if (promptState) promptState.resolve(value);
+    setPromptState(null);
+  }
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -325,7 +367,7 @@ function App() {
   }
 
   async function handleDeleteChat(chatId: string) {
-    if (!confirm("Bu sohbet silinecek. Emin misin?")) return;
+    if (!(await askConfirm("Bu sohbet silinecek. Emin misin?"))) return;
     try {
       const r = await fetch(`${API}/chats/${chatId}`, { method: "DELETE" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -565,17 +607,6 @@ function App() {
     setEditingDocValue("");
   }
 
-  // Doküman taşıma — inline mini menü ile hedef koleksiyon seçtirir.
-  // Embedding yeniden hesaplanmaz, ChromaDB chunks aynı vektörlerle
-  // target koleksiyona kopyalanıp source'tan silinir.
-  function handleStartMoveDoc(fileName: string) {
-    setMovingDoc(fileName);
-  }
-
-  function handleCancelMoveDoc() {
-    setMovingDoc(null);
-  }
-
   // Doküman sıralama — frontend liste swap'i + backend'e tüm sıra gönderim.
   // Optimistic update: önce UI'da swap, sonra backend'e gönder. Hata olursa
   // eski sıraya rollback.
@@ -610,52 +641,8 @@ function App() {
     }
   }
 
-  async function handleMoveDoc(fileName: string, target: string) {
-    setMovingDoc(null);
-    try {
-      const res = await fetch(`${API}/documents/move`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          file_name: fileName,
-          target_collection: target,
-        }),
-      });
-
-      if (res.status === 409) {
-        const err = await res.json().catch(() => null);
-        setToast({
-          type: "error",
-          message: err?.detail || `'${fileName}' hedefte zaten var.`,
-        });
-        return;
-      }
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.detail || `HTTP ${res.status}`);
-      }
-
-      const result = await res.json();
-      // Taşınan doküman aktif koleksiyondan kalktı, listeyi yenile
-      await refreshDocs();
-      // Seçili doküman taşınmışsa seçimi kaldır — artık bu koleksiyonda yok
-      if (selectedDoc === fileName) {
-        setSelectedDoc(null);
-      }
-      setToast({
-        type: "success",
-        message: `'${fileName}' -> '${target}' (${result.chunks ?? 0} chunk)`,
-      });
-    } catch (err) {
-      setToast({
-        type: "error",
-        message: `Taşınamadı: ${err instanceof Error ? err.message : "bilinmeyen"}`,
-      });
-    }
-  }
-
   async function handleDeleteDoc(fileName: string) {
-    if (!confirm(`'${fileName}' silinecek. Emin misin?`)) return;
+    if (!(await askConfirm(`'${fileName}' silinecek. Emin misin?`))) return;
 
     setDeletingDoc(fileName);
     try {
@@ -669,7 +656,10 @@ function App() {
 
       const result = await res.json();
       if (result.failed && result.failed.length > 0) {
-        alert(`Silinemedi: ${result.failed[0].reason}`);
+        setToast({
+          type: "error",
+          message: `Silinemedi: ${result.failed[0].reason}`,
+        });
       } else {
         // Silinen dosya seçiliyse seçimi kaldır — ama aktif sohbetin
         // mesajlarına dokunma, onlar geriye dönük görüntüleme için kalır.
@@ -679,9 +669,10 @@ function App() {
         await refreshDocs();
       }
     } catch (err) {
-      alert(
-        `Silme hatası: ${err instanceof Error ? err.message : "bilinmeyen"}`,
-      );
+      setToast({
+        type: "error",
+        message: `Silme hatası: ${err instanceof Error ? err.message : "bilinmeyen"}`,
+      });
     } finally {
       setDeletingDoc(null);
     }
@@ -713,14 +704,15 @@ function App() {
       setShowCollectionMenu(false);
       // chats listesi useEffect ile collection değiştiği için otomatik yenilenir
     } catch (err) {
-      alert(
-        `Koleksiyon değiştirilemedi: ${err instanceof Error ? err.message : "bilinmeyen"}`,
-      );
+      setToast({
+        type: "error",
+        message: `Koleksiyon değiştirilemedi: ${err instanceof Error ? err.message : "bilinmeyen"}`,
+      });
     }
   }
 
   async function handleCreateCollection() {
-    const name = prompt("Yeni koleksiyon adı:");
+    const name = await askPrompt("Yeni koleksiyon adı:", "", "Oluştur");
     if (!name || !name.trim()) return;
 
     try {
@@ -739,17 +731,18 @@ function App() {
       setAllCollections((prev) => [...prev, data.created]);
       setShowCollectionMenu(false);
     } catch (err) {
-      alert(
-        `Koleksiyon oluşturulamadı: ${err instanceof Error ? err.message : "bilinmeyen"}`,
-      );
+      setToast({
+        type: "error",
+        message: `Koleksiyon oluşturulamadı: ${err instanceof Error ? err.message : "bilinmeyen"}`,
+      });
     }
   }
 
   async function handleDeleteCollection(name: string) {
     if (
-      !confirm(
-        `'${name}' koleksiyonu ve içindeki tüm dokümanlar silinecek. Emin misin?`,
-      )
+      !(await askConfirm(
+        `'${name}' koleksiyonu, içindeki tüm dokümanlar ve sohbetler silinecek. Emin misin?`,
+      ))
     )
       return;
 
@@ -776,9 +769,10 @@ function App() {
         setMessages([]);
       }
     } catch (err) {
-      alert(
-        `Koleksiyon silinemedi: ${err instanceof Error ? err.message : "bilinmeyen"}`,
-      );
+      setToast({
+        type: "error",
+        message: `Koleksiyon silinemedi: ${err instanceof Error ? err.message : "bilinmeyen"}`,
+      });
     }
   }
 
@@ -909,9 +903,10 @@ function App() {
         setDecisions(initial);
       }
     } catch (err) {
-      alert(
-        `Kontrol hatası: ${err instanceof Error ? err.message : "bilinmeyen"}`,
-      );
+      setToast({
+        type: "error",
+        message: `Kontrol hatası: ${err instanceof Error ? err.message : "bilinmeyen"}`,
+      });
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
@@ -1252,7 +1247,7 @@ function App() {
             {/* Dokümanlar */}
             <div className="flex flex-col flex-1 min-h-0">
               <div className="px-3 pt-3 pb-1.5 flex items-center justify-between flex-shrink-0">
-                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">
                   Dokümanlar
                 </span>
                 {!loading && docs.length > 0 && (
@@ -1353,17 +1348,6 @@ function App() {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleStartMoveDoc(doc.file_name);
-                                }}
-                                disabled={isStreaming}
-                                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-600 text-xs px-1 disabled:opacity-0 transition-colors"
-                                title="Başka koleksiyona taşı"
-                              >
-                                →
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
                                   handleDeleteDoc(doc.file_name);
                                 }}
                                 disabled={
@@ -1377,43 +1361,6 @@ function App() {
                             </div>
                           )}
                         </div>
-                        {movingDoc === doc.file_name && (
-                          <div className="mt-1 mx-1 mb-1 px-2 py-1.5 bg-white border border-slate-200 rounded-md text-xs shadow-sm">
-                            <div className="text-slate-600 mb-1.5 font-medium">Şuraya taşı:</div>
-                            {allCollections.filter((c) => c !== collection)
-                              .length === 0 ? (
-                              <div className="text-slate-400 italic">
-                                Başka koleksiyon yok.
-                              </div>
-                            ) : (
-                              <div className="flex flex-wrap gap-1">
-                                {allCollections
-                                  .filter((c) => c !== collection)
-                                  .map((c) => (
-                                    <button
-                                      key={c}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleMoveDoc(doc.file_name, c);
-                                      }}
-                                      className="px-2 py-0.5 border border-slate-300 rounded bg-white hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors"
-                                    >
-                                      {c}
-                                    </button>
-                                  ))}
-                              </div>
-                            )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCancelMoveDoc();
-                              }}
-                              className="mt-1.5 text-slate-500 hover:text-slate-700"
-                            >
-                              İptal
-                            </button>
-                          </div>
-                        )}
                       </li>
                     ))}
                   </ul>
@@ -1424,7 +1371,7 @@ function App() {
             {/* Sohbetler */}
             <div className="flex flex-col flex-1 min-h-0 border-t border-slate-200">
               <div className="px-3 pt-3 pb-1.5 flex items-center justify-between flex-shrink-0">
-                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">
                   Sohbetler
                 </span>
                 <div className="flex items-center gap-2">
@@ -1439,7 +1386,7 @@ function App() {
                     className="text-slate-400 hover:text-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     title={isStreaming ? "Sorgu sürüyor, bekleyin" : "Yeni sohbet"}
                   >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
                     </svg>
                   </button>
@@ -1692,16 +1639,16 @@ function App() {
 
             <div className="flex justify-end gap-2">
               <button
-                onClick={cancelConflicts}
-                className="px-3 py-1.5 border border-slate-300 rounded-md text-sm hover:bg-slate-50 transition-colors"
-              >
-                İptal
-              </button>
-              <button
                 onClick={confirmConflicts}
                 className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
               >
                 Devam Et
+              </button>
+              <button
+                onClick={cancelConflicts}
+                className="px-3 py-1.5 border border-slate-300 rounded-md text-sm hover:bg-slate-50 transition-colors"
+              >
+                İptal
               </button>
             </div>
           </div>
@@ -1719,6 +1666,67 @@ function App() {
               <p className="text-xs text-slate-500 mt-1 tabular-nums">
                 Geçen süre: {formatDuration(uploadElapsedSec)}
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmState && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full mx-4 p-6 border border-slate-200">
+            <p className="text-sm text-slate-700 whitespace-pre-line mb-5">
+              {confirmState.message}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => resolveConfirm(true)}
+                className="px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 transition-colors shadow-sm"
+              >
+                {confirmState.confirmLabel}
+              </button>
+              <button
+                onClick={() => resolveConfirm(false)}
+                className="px-3 py-1.5 border border-slate-300 rounded-md text-sm hover:bg-slate-50 transition-colors"
+              >
+                Vazgeç
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {promptState && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full mx-4 p-6 border border-slate-200">
+            <p className="text-sm text-slate-700 mb-3">{promptState.message}</p>
+            <input
+              autoFocus
+              type="text"
+              value={promptState.value}
+              onChange={(e) =>
+                setPromptState((prev) =>
+                  prev ? { ...prev, value: e.target.value } : prev,
+                )
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") resolvePrompt(promptState.value);
+                if (e.key === "Escape") resolvePrompt(null);
+              }}
+              className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-sm bg-white text-slate-900 focus:outline-none focus:border-indigo-400 mb-5"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => resolvePrompt(promptState.value)}
+                className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
+              >
+                {promptState.submitLabel}
+              </button>
+              <button
+                onClick={() => resolvePrompt(null)}
+                className="px-3 py-1.5 border border-slate-300 rounded-md text-sm hover:bg-slate-50 transition-colors"
+              >
+                Vazgeç
+              </button>
             </div>
           </div>
         </div>

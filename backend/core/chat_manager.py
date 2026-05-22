@@ -186,6 +186,38 @@ class ChatManager:
             )
         return count
 
+    def delete_chats_by_collection(self, collection: str) -> int:
+        """
+        Belirli bir koleksiyona ait tüm sohbet dosyalarını siler.
+        Koleksiyon silindiğinde DBManager tarafından çağrılır — aksi
+        takdirde o koleksiyonun sohbetleri diskte yetim kalır.
+
+        Dönüş: silinen sohbet sayısı.
+        """
+        count = 0
+        try:
+            entries = os.listdir(self.chats_dir)
+        except OSError as e:
+            log.error(f"Sohbet dizini okunamadı: {e}", exc_info=True)
+            return 0
+
+        for fname in entries:
+            if not fname.endswith(".json") or fname.endswith(".tmp"):
+                continue
+            chat_id = fname[:-5]
+            chat = self._load_chat(chat_id)
+            if chat is None:
+                continue
+            if chat.get("collection") == collection:
+                if self.delete_chat(chat_id):
+                    count += 1
+
+        if count:
+            log.info(
+                f"{count} sohbet silindi (koleksiyon silindi: '{collection}')"
+            )
+        return count
+
     def add_message(self, chat_id: str, message: dict) -> Optional[dict]:
         """
         Sohbete bir mesaj ekler. İlk user mesajında başlık otomatik üretilir

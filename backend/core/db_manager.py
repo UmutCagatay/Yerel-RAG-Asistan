@@ -124,7 +124,7 @@ class DBManager:
         log.info(f"Koleksiyon oluşturuldu: '{name}'")
         return True
 
-    def delete_collection(self, name: str) -> bool:
+    def delete_collection(self, name: str, chat_manager=None) -> bool:
         """..."""
         if name == self.DEFAULT_COLLECTION:
             log.warning(f"'{self.DEFAULT_COLLECTION}' koleksiyonu silinemez.")
@@ -150,6 +150,16 @@ class DBManager:
         if self.active_collection == name:
             self.active_collection = self.DEFAULT_COLLECTION
             log.info(f"Aktif koleksiyon '{self.DEFAULT_COLLECTION}'a alındı.")
+
+        # Bu koleksiyona ait sohbetleri de sil — aksi halde diskte yetim kalır.
+        # ChatManager verilmezse (eski çağrılar) atlanır, non-fatal.
+        if chat_manager is not None:
+            try:
+                chat_manager.delete_chats_by_collection(name)
+            except Exception as e:
+                log.warning(
+                    f"Koleksiyon sohbetleri silinirken hata: {e}", exc_info=True
+                )
 
         self._vacuum_db()
         log.info(f"Koleksiyon silindi: '{name}'")
@@ -640,172 +650,6 @@ class DBManager:
         log.info(f"Yeniden adlandırma tamamlandı: '{old_name}' → '{new_name}'")
         return {"renamed": True, "new_name": new_name}
 
-    def move_document(
-        self,
-        file_name: str,
-        target_collection: str,
-        source_collection: str | None = None,
-    ) -> dict:
-        """
-        Bir dokümanı bir koleksiyondan diğerine taşır.
-
-        Embedding YENİDEN HESAPLANMAZ — chunks aynı vektörlerle target'a
-        kopyalanır ve source'tan silinir. Bu sayede büyük PDF'lerin saatlerce
-        sürebilecek Jina+VLM hesabı atlanır, taşıma saniyeler sürer.
-
-        Atomik olmayan operasyon. Yarıda kalırsa veri KAYBI olmaz ama
-        DUPLICATE oluşabilir. Örneğin target'a eklendikten sonra source'tan
-        silinemediyse hem source hem target'ta var olur. Bu durumda WARNING
-        log'a yazılır, kullanıcı manuel müdahale yapabilir.
-
-        Fazlar:
-            1) Validation (source/target var, farkı, çakışma yok)
-            2) Source ChromaDB'den chunks (ids+embeddings+documents+metadatas) çek
-            3) Target ChromaDB'ye add (collection_name metadata yenilenmiş)
-            4) sections.json'da collection_name update
-            5) Catalog: source'tan kaldır, target'a ekle
-            6) Source ChromaDB'den chunks sil (en son)
-
-        Dönüş:
-            {"moved": True, "file_name": str, "target": str, "chunks": int}
-            {"moved": False, "reason": str}
-        """
-        source = source_collection or self.active_collection
-        file_name = (file_name or "").strip()
-        target_collection = (target_collection or "").strip()
-
-        if not file_name or not target_collection:
-            return {
-                "moved": False,
-                "reason": "Dosya adı ve hedef koleksiyon zorunlu.",
-            }
-
-        if source == target_collection:
-            return {
-                "moved": False,
-                "reason": "Kaynak ve hedef koleksiyon aynı.",
-            }
-
-        catalog = self._load_catalog()
-
-        if source not in catalog["collections"]:
-            return {
-                "moved": False,
-                "reason": f"'{source}' adında koleksiyon yok.",
-            }
-        if target_collection not in catalog["collections"]:
-            return {
-                "moved": False,
-                "reason": f"'{target_collection}' adında koleksiyon yok.",
-            }
-
-        source_docs = catalog["collections"][source]["documents"]
-        target_docs = catalog["collections"][target_collection]["documents"]
-
-        if file_name not in source_docs:
-            return {
-                "moved": False,
-                "reason": f"'{file_name}' '{source}' içinde yok.",
-            }
-
-        if file_name in target_docs:
-            return {
-                "moved": False,
-                "reason": f"'{file_name}' '{target_collection}' içinde zaten var.",
-            }
-
-        log.info(
-            f"Doküman taşınıyor: '{file_name}' '{source}' -> '{target_collection}'"
-        )
-
-        # 1) Source'tan chunks çek (embedding dahil)
-        try:
-            source_col = self.chroma_client.get_collection(source)
-            result = source_col.get(
-                where={"file_name": file_name},
-                include=["embeddings", "documents", "metadatas"],
-            )
-            # ChromaDB embeddings'i numpy.ndarray olarak döndürüyor.
-            # `arr or []` Python'da array'i bool değerlendirmeye çalışır ve
-            # NumPy ambiguous truth-value hatası atar. Bu yüzden None check.
-            ids = result.get("ids") or []
-            embeddings = result.get("embeddings")
-            if embeddings is None:
-                embeddings = []
-            documents = result.get("documents") or []
-            metadatas = result.get("metadatas") or []
-
-            if len(ids) == 0:
-                log.warning(
-                    f"'{file_name}' için ChromaDB'de chunk bulunamadı — "
-                    f"yine de catalog/sections taşınacak."
-                )
-            else:
-                log.info(f"{len(ids)} chunk source'tan çekildi (embedding ile).")
-        except Exception as e:
-            log.error(f"Source chunks okunamadı: {e}", exc_info=True)
-            return {"moved": False, "reason": f"ChromaDB hatası (kaynak): {e}"}
-
-        # 2) Target'a ekle, collection_name metadata'larını güncelle
-        if len(ids) > 0:
-            try:
-                target_col = self.chroma_client.get_collection(target_collection)
-                new_metadatas = [
-                    {**(md or {}), "collection_name": target_collection}
-                    for md in metadatas
-                ]
-                target_col.add(
-                    ids=ids,
-                    embeddings=embeddings,
-                    documents=documents,
-                    metadatas=new_metadatas,
-                )
-                log.info(f"{len(ids)} chunk target'a eklendi.")
-            except Exception as e:
-                # Target'a eklenemedi — source intakt, kullanıcı tekrar deneyebilir.
-                log.error(f"Target'a ekleme başarısız: {e}", exc_info=True)
-                return {
-                    "moved": False,
-                    "reason": f"ChromaDB hatası (hedef): {e}",
-                }
-
-        # 3) sections.json collection_name update
-        self._move_sections_document(file_name, source, target_collection)
-
-        # 4) Catalog: source'tan kaldır, target'a ekle
-        # add_documents'ın yazdığı added_at/chunk_count gibi alanlar olduğu
-        # gibi kalıyor, sadece anahtar farklı koleksiyona geçiyor.
-        target_docs[file_name] = source_docs.pop(file_name)
-        self._save_catalog(catalog)
-
-        # 5) Source'tan ChromaDB chunks sil — en son, ki yarıda kalırsa
-        #    veri sadece duplicate olur, kayıp olmaz.
-        if len(ids) > 0:
-            try:
-                source_col.delete(where={"file_name": file_name})
-                log.info(f"{len(ids)} chunk source'tan silindi.")
-            except Exception as e:
-                # Target'ta var, catalog güncel, ama source'ta da chunks duruyor.
-                # Orphan cleanup bunu yakalayamaz çünkü file_name catalog'da
-                # var (sadece farklı koleksiyonda). Kullanıcı manuel müdahale
-                # yapabilir — source'taki dokümanı silmek güvenli.
-                log.warning(
-                    f"DUPLICATE RİSKİ: source'tan silinemedi '{file_name}' "
-                    f"({source}): {e}",
-                    exc_info=True,
-                )
-
-        log.info(
-            f"Taşıma tamamlandı: '{file_name}' "
-            f"'{source}' -> '{target_collection}', {len(ids)} chunk."
-        )
-        return {
-            "moved": True,
-            "file_name": file_name,
-            "target": target_collection,
-            "chunks": len(ids),
-        }
-
     def reorder_documents(
         self,
         file_names_in_order: list[str],
@@ -942,45 +786,6 @@ class DBManager:
             log.debug(
                 f"{changed} section file_name güncellendi "
                 f"(doküman: '{old_name}' → '{new_name}', koleksiyon: '{collection_name}')"
-            )
-        except Exception as e:
-            log.error(f"sections.json yazılamadı: {e}", exc_info=True)
-
-    def _move_sections_document(
-        self,
-        file_name: str,
-        source_collection: str,
-        target_collection: str,
-    ) -> None:
-        """sections.json'da bir doc'un collection_name'ini günceller."""
-        if not os.path.exists(self.sections_path):
-            return
-
-        try:
-            with open(self.sections_path, "r", encoding="utf-8") as f:
-                sections = json.load(f)
-        except Exception as e:
-            log.error(f"sections.json okunamadı: {e}", exc_info=True)
-            return
-
-        changed = 0
-        for data in sections.values():
-            md = data.get("metadata", {})
-            if (
-                md.get("file_name") == file_name
-                and md.get("collection_name") == source_collection
-            ):
-                md["collection_name"] = target_collection
-                changed += 1
-
-        if changed == 0:
-            return
-
-        try:
-            atomic_write_json(self.sections_path, sections)
-            log.debug(
-                f"{changed} section taşındı: '{file_name}' "
-                f"'{source_collection}' -> '{target_collection}'"
             )
         except Exception as e:
             log.error(f"sections.json yazılamadı: {e}", exc_info=True)

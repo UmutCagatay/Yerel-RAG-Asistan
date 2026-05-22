@@ -136,7 +136,7 @@ def delete_collection(name: str):
             detail=f"'{db.DEFAULT_COLLECTION}' koleksiyonu silinemez.",
         )
 
-    success = db.delete_collection(name)
+    success = db.delete_collection(name, chat_manager=chat_manager)
     if not success:
         raise HTTPException(
             status_code=404,
@@ -340,37 +340,6 @@ def rename_document(body: RenameDocumentRequest):
         status = 409 if "zaten var" in reason else 400
         raise HTTPException(status_code=status, detail=reason)
     return {"renamed": result["new_name"]}
-
-
-class MoveDocumentRequest(BaseModel):
-    """Doküman taşıma isteği: aktif koleksiyondan başka koleksiyona."""
-
-    file_name: str
-    target_collection: str
-
-
-@app.post("/documents/move")
-def move_document(body: MoveDocumentRequest):
-    """
-    Bir dokümanı aktif koleksiyondan hedef koleksiyona taşır.
-    Embedding yeniden hesaplanmaz — chunks aynı vektörlerle target'a kopyalanıp
-    source'tan silinir.
-    """
-    result = db.move_document(body.file_name, body.target_collection)
-    if not result.get("moved"):
-        reason = result.get("reason", "Bilinmeyen hata")
-        if "zaten var" in reason:
-            status = 409
-        elif "içinde yok" in reason or "adında koleksiyon yok" in reason:
-            status = 404
-        else:
-            status = 400
-        raise HTTPException(status_code=status, detail=reason)
-    return {
-        "moved": result["file_name"],
-        "target": result["target"],
-        "chunks": result.get("chunks", 0),
-    }
 
 
 class ReorderDocumentsRequest(BaseModel):
