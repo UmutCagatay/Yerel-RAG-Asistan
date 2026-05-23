@@ -1,8 +1,11 @@
 import json
 import os
+import time
 
 
-def atomic_write_json(path: str, data: dict) -> None:
+def atomic_write_json(
+    path: str, data: dict, retries: int = 5, backoff: float = 0.1
+) -> None:
     """
     JSON'u atomik yaz: önce '<path>.tmp' dosyaya yaz, sonra os.replace ile rename.
 
@@ -26,7 +29,20 @@ def atomic_write_json(path: str, data: dict) -> None:
             json.dump(data, f, ensure_ascii=False, indent=2)
             f.flush()
             os.fsync(f.fileno())  # disk'e fiziksel yazımı zorla
-        os.replace(tmp_path, path)  # atomik rename (POSIX + Windows)
+
+        # os.replace bazen Windows'ta WinError 5 (erişim engellendi) verir:
+        # antivirüs, arama indeksleyici veya bulut senkronu (OneDrive vb.)
+        # hedef dosyayı o an kısa süreliğine kilitler. Kilit geçici olduğu
+        # için kısa aralıklarla birkaç kez deneriz; hâlâ açılmazsa son hatayı
+        # fırlatırız (hatayı gizlemeyiz, sadece geçici kilide tolerans tanırız).
+        for attempt in range(retries):
+            try:
+                os.replace(tmp_path, path)  # atomik rename (POSIX + Windows)
+                break
+            except PermissionError:
+                if attempt == retries - 1:
+                    raise
+                time.sleep(backoff * (attempt + 1))
     except Exception:
         # Hata olursa .tmp'yi temizle ki bir dahaki açılışta artık dosya kalmasın
         if os.path.exists(tmp_path):
