@@ -66,5 +66,7 @@ class AppConfig:
     # ── VLM ──────────────────────────────────────────────────────────────
     VLM_N_CTX: int = 8192
     VLM_MAX_TOKENS: int = 1536
-    VLM_TEMPERATURE: float = 0.0
-
+    # Qwen3-VL greedy'de (0.0) sonsuz tekrara düşer (model kartı + Qwen rehberi:
+    # "DO NOT use greedy decoding"). 0.7 = instruct reçetesi: sadık ama sampling
+    # açık. top_k/top_p vlm_engine'de set ediliyor.
+    VLM_TEMPERATURE: float = 0.7

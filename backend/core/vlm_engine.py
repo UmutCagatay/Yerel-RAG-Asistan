@@ -129,7 +129,8 @@ class VLMEngine:
                         "role": "system",
                         "content": (
                             "Sen bir görsel analiz asistanısın. "
-                            "Sadece isteneni yap, ekstra yorum ekleme."
+                            "Sadece isteneni yap, ekstra yorum ekleme. "
+                            "Gereksiz bilgi tekrarı yapma."
                         ),
                     },
                     {
@@ -141,17 +142,31 @@ class VLMEngine:
                     },
                 ],
                 max_tokens=AppConfig.VLM_MAX_TOKENS,
+                # Qwen3-VL (ZwZ baz modeli) GREEDY'de sonsuz tekrara düşer; model
+                # kartı ve Qwen resmi rehberi greedy'i yasaklıyor. Çözüm: sampling'i
+                # açıp top_k/top_p ile odaklı tutmak — tekrar döngüsünü kaynağında
+                # kırar. Önceki repeat_penalty + DRY yamaları kaldırıldı: bunlar
+                # greedy'i zorlamanın yan etkisiydi ve modeli doğru token'dan
+                # uzaklaştırıp tabloları bozuyordu. top_k=20 / top_p=0.8 instruct
+                # reçetesi; net tablo hücrelerinde doğru değer baskın kaldığı için
+                # sadakat korunur.
                 temperature=AppConfig.VLM_TEMPERATURE,
-                repeat_penalty=1.08,
-                # DRY (Don't Repeat Yourself): tekrar eden DİZİLERİ cezalandırır,
-                # tek token'ları değil. Tablo olmayan fotoğraf/diyagramlarda
-                # modelin aynı cümleyi tavana (1536 tok) kadar tekrarlamasını
-                # engeller. "\n" varsayılan sequence breaker olduğu için tablo
-                # satırları etkilenmez; sadece peş peşe tekrarlayan paragraflar kırılır.
-                # allowed_length=2: 2 token'dan uzun tekrar dizileri cezalanır.
-                # penalty_last_n=-1: tüm bağlamı tara. ÖNEMLİ — varsayılanı 0'dır ve
-                # llama.cpp'de 0 = DRY tamamen kapalı. Bunu set etmezsek diğer dry_*
-                # parametreleri etkisiz kalır (no-op).
+                top_k=20,
+                top_p=0.8,
+                min_p=0.0,
+                # present_penalty: Qwen'in instruct/VL benchmark ayarında 1.5;
+                # düşük çözünürlüklü/okunaksız görsellerde tekrar için 1.8'e çekildi
+                # (presence penalty). Tekrarı bastırmanın resmi yolu; yazarlar OCR
+                # skorlarını bununla aldı. NOT: JamePeng fork'unda parametre adı
+                # "present_penalty" (upstream'deki "presence_penalty" değil).
+                # Çok yüksek olursa dil karışımı yapabilir, o noktada 1.0'a çekilir.
+                present_penalty=1.8,
+                # DRY (dizi-tekrar cezası): present_penalty token bazında çalışır;
+                # DRY peş peşe tekrarlayan DİZİLERİ hedefler — okunaksız görsellerdeki
+                # "aynı satırı tavana kadar tekrarla" döngüsü tam bu. Önceden greedy'de
+                # ters tepmişti; artık düzgün sampling'de (temp 0.7) tasarlandığı gibi
+                # çalışır. dry_penalty_last_n=-1 ŞART: fork'ta varsayılanı 0 ve 0 = DRY
+                # kapalı. Seq breaker varsayılanı "\n" içerir, tablo satırlarını korur.
                 dry_multiplier=0.8,
                 dry_base=1.75,
                 dry_allowed_length=2,
