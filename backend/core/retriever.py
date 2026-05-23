@@ -232,7 +232,6 @@ class RetrieverEngine:
         self,
         query: str,
         top_n: int = 3,
-        threshold: float = 0.0,
         file_names: list[str] | None = None,
     ):
         """
@@ -281,7 +280,7 @@ class RetrieverEngine:
         best_docs = [doc for _, doc in scored_docs[:top_n]]
 
         if not best_docs:
-            log.warning(f"Reranker tüm sonuçları threshold={threshold} altında eledi.")
+            log.warning("Reranker sonrası bağlam boş kaldı.")
             return ""
 
         # ── 3. Debug: Reranker sonuçları ──────────────────────────────────────────

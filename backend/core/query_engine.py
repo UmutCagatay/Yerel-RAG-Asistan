@@ -70,7 +70,6 @@ class QueryEngine:
             context_text = retriever.get_relevant_context(
                 query=question,
                 top_n=AppConfig.RERANKER_TOP_N,
-                threshold=0.0,
                 file_names=file_names,
             )
             log.debug(f"Bağlam hazır ({time.time() - t:.2f} sn).")
@@ -125,7 +124,6 @@ class QueryEngine:
             context_text = retriever.get_relevant_context(
                 query=question,
                 top_n=AppConfig.RERANKER_TOP_N,
-                threshold=0.0,
                 file_names=file_names,
             )
         gc.collect()

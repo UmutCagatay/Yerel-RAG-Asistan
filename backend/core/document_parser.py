@@ -2,6 +2,7 @@ import hashlib
 import logging
 import os
 import re
+import shutil
 import time
 import uuid as _uuid
 from collections import Counter
@@ -969,38 +970,48 @@ class DocumentParser:
         temp_img_dir = str(AppConfig.TEMP_IMAGES_DIR / unique_dir)
         os.makedirs(temp_img_dir, exist_ok=True)
 
-        # ── Adım 1 ───────────────────────────────────────────────────────────
-        log.debug("Adım 1: pymupdf4llm (Layout modu) çalıştırılıyor.")
-        step_t = time.time()
-        md_pages = pymupdf4llm.to_markdown(
-            doc=file_path,
-            write_images=True,
-            image_path=temp_img_dir,
-            dpi=250,
-            page_chunks=True,
-        )
-        log.debug(
-            f"Adım 1 bitti: {len(md_pages)} sayfa, {time.time() - step_t:.2f} sn."
-        )
+        # Görseller bu noktadan sonra Adım 4'te (VLM) tüketiliyor; parse
+        # bittiğinde node'lar görsel yolu değil VLM metnini taşır. Bu yüzden
+        # try/finally ile sarıp, parse hata verse bile bu dosyanın geçici
+        # görsel klasörünü siliyoruz — temp_images sınırsız büyümesin.
+        try:
+            # ── Adım 1 ───────────────────────────────────────────────────────────
+            log.debug("Adım 1: pymupdf4llm (Layout modu) çalıştırılıyor.")
+            step_t = time.time()
+            md_pages = pymupdf4llm.to_markdown(
+                doc=file_path,
+                write_images=True,
+                image_path=temp_img_dir,
+                dpi=250,
+                page_chunks=True,
+            )
+            log.debug(
+                f"Adım 1 bitti: {len(md_pages)} sayfa, {time.time() - step_t:.2f} sn."
+            )
 
-        # ── Adım 2 ───────────────────────────────────────────────────────────
-        joined_text = self._remove_frequent_headers_footers(md_pages)
+            # ── Adım 2 ───────────────────────────────────────────────────────────
+            joined_text = self._remove_frequent_headers_footers(md_pages)
 
-        # ── Adım 3 ───────────────────────────────────────────────────────────
-        clean_text = self._clean_markdown(joined_text)
+            # ── Adım 3 ───────────────────────────────────────────────────────────
+            clean_text = self._clean_markdown(joined_text)
 
-        # ── Adım 4 ───────────────────────────────────────────────────────────
-        enriched_text = self._inject_vlm_analysis(clean_text, vlm_engine)
+            # ── Adım 4 ───────────────────────────────────────────────────────────
+            enriched_text = self._inject_vlm_analysis(clean_text, vlm_engine)
 
-        # ── Adım 5 ───────────────────────────────────────────────────────────
-        nodes = self._chunking_with_vlm_awareness(enriched_text, file_path)
+            # ── Adım 5 ───────────────────────────────────────────────────────────
+            nodes = self._chunking_with_vlm_awareness(enriched_text, file_path)
 
-        # parse() içinde, _chunking_with_vlm_awareness'tan sonra
-        nodes = self._create_section_parents(nodes)  # ← YENİ: parent-child katmanı
+            # parse() içinde, _chunking_with_vlm_awareness'tan sonra
+            nodes = self._create_section_parents(nodes)  # ← YENİ: parent-child katmanı
 
-        log.info(
-            f"Parse tamamlandı: {base_name} — "
-            f"{len(md_pages)} sayfa, {len(nodes)} node, "
-            f"{time.time() - parse_start:.2f} sn."
-        )
-        return nodes
+            log.info(
+                f"Parse tamamlandı: {base_name} — "
+                f"{len(md_pages)} sayfa, {len(nodes)} node, "
+                f"{time.time() - parse_start:.2f} sn."
+            )
+            return nodes
+        finally:
+            # Geçici görsel klasörünü temizle. ignore_errors: Windows'ta dosya
+            # kilidi vb. olsa bile parse'ı patlatmasın.
+            shutil.rmtree(temp_img_dir, ignore_errors=True)
+            log.debug(f"Geçici görsel klasörü silindi: {temp_img_dir}")

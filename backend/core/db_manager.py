@@ -55,8 +55,10 @@ class DBManager:
         # Önceki oturumdan kalan orphan kayıtları temizle:
         #   1) Catalog'da yok ama DB'de var olan dokümanlar (crash recovery)
         #   2) Aktif olmayan ChromaDB segment klasörleri
+        #   3) parse'tan kalan geçici görsel klasörleri (sert kapanma kalıntısı)
         self._cleanup_orphan_documents()
         self._cleanup_orphan_segments()
+        self._cleanup_temp_images()
 
     # ── Catalog dosyası okuma/yazma ──────────────────────────────────────────
 
@@ -938,3 +940,36 @@ class DBManager:
             log.info(f"{removed} orphan segment klasörü temizlendi.")
         if failed:
             log.debug(f"{failed} orphan segment kilitli (sonraki açılışta denenecek).")
+
+    def _cleanup_temp_images(self) -> None:
+        """
+        Açılışta data/temp_images altındaki geçici görsel klasörlerini siler.
+
+        Normal akışta parse() her dosyanın klasörünü kendisi temizliyor; ama
+        parse ortasında sert kapanma (taskkill, elektrik kesintisi) olursa
+        finally çalışmadan kalıntı klasör kalabilir. Bu sweep o kalıntıları
+        ve geçmişten birikmiş klasörleri temizler.
+
+        Startup'ta çalışır — bu noktada henüz ingestion başlamadığı için
+        kullanımda olan bir klasörü silme riski yok. Sadece alt klasörler
+        silinir; temp_images dizininin kendisi yerinde kalır.
+        """
+        import shutil
+
+        temp_dir = str(AppConfig.TEMP_IMAGES_DIR)
+        if not os.path.isdir(temp_dir):
+            return
+
+        removed = 0
+        for entry in os.listdir(temp_dir):
+            full_path = os.path.join(temp_dir, entry)
+            if not os.path.isdir(full_path):
+                continue
+            try:
+                shutil.rmtree(full_path)
+                removed += 1
+            except Exception as e:
+                log.debug(f"Geçici görsel klasörü silinemedi ({entry}): {e}")
+
+        if removed:
+            log.info(f"{removed} geçici görsel klasörü temizlendi (açılış).")

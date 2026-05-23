@@ -270,7 +270,11 @@ def add_documents(
     try:
         saved_paths = []
         for file in accepted:
-            dest = os.path.join(tmp_dir, file.filename)
+            # Güvenlik: filename içinde yol ayracı (../ gibi) olursa tmp dizini
+            # dışına yazma riskini kes — sadece dosya adını al. Tarayıcı zaten
+            # temiz isim gönderir; bu defansif bir kat.
+            safe_name = os.path.basename(file.filename or "")
+            dest = os.path.join(tmp_dir, safe_name)
             with open(dest, "wb") as f:
                 shutil.copyfileobj(file.file, f)
             saved_paths.append(dest)
