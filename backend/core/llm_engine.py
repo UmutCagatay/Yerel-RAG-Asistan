@@ -67,7 +67,75 @@ Soru: {question}<end_of_turn>
 
         log.info(f"LLM Motoru (Gemma) yüklendi ({time.time() - load_start:.2f} sn).")
 
+    def _fit_context_to_window(self, context: str, question: str) -> str:
+        """
+        Bağlamı, render edilen prompt + cevap payı LLM penceresine (n_ctx)
+        sığacak şekilde kırpar. Taşma yoksa bağlamı aynen döndürür.
+
+        Neden gerekli: section genişletme bazen (yoğun VLM/tablo bölümlerinde)
+        çok büyük bağlam üretebiliyor; bu bağlam doğrudan LLM'e gidince
+        'Requested tokens exceed context window' ile üretim çöküyordu. Burada
+        evrensel bir güvenlik ağı kuruyoruz: sebebi ne olursa olsun bağlam
+        pencereye sığar.
+
+        Kırpma sondan yapılır (reranker en alakalı pasajları üste koyduğu için
+        sonda kalan en düşük öncelikli kısımdır). Token bazlı; tokenizer
+        erişilemezse ihtiyatlı bir karakter bütçesine düşülür.
+        """
+        budget = AppConfig.LLM_N_CTX - AppConfig.LLM_MAX_TOKENS - 256
+        if budget <= 0:
+            return context  # anlamsız config; dokunma
+
+        marker = "\n\n[... bağlam, model penceresine sığması için kırpıldı ...]"
+        client = getattr(self.llm, "client", None)
+
+        # ── Token bazlı (tercih edilen) ──
+        if client is not None:
+            try:
+                full_prompt = self.prompt_template.format(
+                    context=context, question=question
+                )
+                total = len(
+                    client.tokenize(
+                        full_prompt.encode("utf-8"), add_bos=True, special=True
+                    )
+                )
+                if total <= budget:
+                    return context
+
+                overflow = total - budget
+                ctx_tokens = client.tokenize(
+                    context.encode("utf-8"), add_bos=False, special=False
+                )
+                # overflow kadar + küçük tampon token'ı sondan at
+                keep = max(0, len(ctx_tokens) - overflow - 32)
+                trimmed = client.detokenize(ctx_tokens[:keep]).decode(
+                    "utf-8", errors="ignore"
+                )
+                log.warning(
+                    f"Bağlam pencereyi aşıyordu ({total} token > {budget} bütçe); "
+                    f"sondan ~{overflow} token kırpıldı."
+                )
+                return trimmed + marker
+            except Exception as e:
+                log.error(
+                    f"Token bazlı kırpma başarısız, karakter tabanlına düşülüyor: {e}",
+                    exc_info=True,
+                )
+
+        # ── Karakter bazlı yedek (tokenizer erişilemezse) ──
+        # Token-yoğun içerik (tablo/sayı) için ihtiyatlı ~2 karakter/token.
+        char_budget = budget * 2
+        if len(context) > char_budget:
+            log.warning(
+                f"Bağlam karakter bütçesini aşıyordu "
+                f"({len(context)} > {char_budget}); kırpıldı."
+            )
+            return context[:char_budget] + marker
+        return context
+
     def generate_answer(self, context: str, question: str) -> str:
+        context = self._fit_context_to_window(context, question)
         try:
             return self.chain.invoke({"context": context, "question": question})
         except Exception as e:
@@ -85,6 +153,7 @@ Soru: {question}<end_of_turn>
         aktarılır. Çağıran taraf for döngüsü ile parçaları toplar veya
         HTTP stream'e yazar.
         """
+        context = self._fit_context_to_window(context, question)
         try:
             for chunk in self.chain.stream({"context": context, "question": question}):
                 # chunk her zaman string — StrOutputParser ile çıktı parse edildi.
