@@ -246,6 +246,16 @@ class JinaEmbeddings(BaseEmbedding):
 
 
 class VectorStoreEngine:
+    """
+    Embedding + ChromaDB yazma katmanı.
+
+    Jina embedding modelini (GPU) yükler ve parser'ın ürettiği node'ları iki
+    yere yazar: child node'lar embed edilip ChromaDB'ye (benzerlik araması için),
+    section parent'ları ise salt metin olarak sections.json'a (embed edilmez,
+    ID ile erişilir). Ingestion'da Faz 2'yi temsil eder; 'with' bloğuyla
+    kullanılıp çıkışta unload() ile VRAM boşaltılır.
+    """
+
     def __init__(
         self,
         persist_dir: str = str(AppConfig.DATABASE_DIR),

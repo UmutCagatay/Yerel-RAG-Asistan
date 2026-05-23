@@ -1,3 +1,12 @@
+"""
+FastAPI sunucusu — frontend'in (Tauri/React) konuştuğu HTTP katmanı.
+
+Tüm iş mantığı DBManager / ChatManager / QueryEngine'de; bu dosya sadece
+HTTP uç noktalarını açar (koleksiyon/doküman/sorgu/sohbet CRUD + streaming).
+127.0.0.1'de dinler, LAN'a kapalı. Aynı anda tek sorgu çalışır (query_lock,
+VRAM koruması); ikinci eşzamanlı istek 409 alır.
+"""
+
 import json
 import logging
 import os

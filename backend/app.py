@@ -1,3 +1,11 @@
+"""
+Terminal arayüzü — GUI'den bağımsız, menü tabanlı giriş noktası.
+
+Tauri/React arayüzü api/main.py üzerinden çalışır; bu dosya ise aynı
+çekirdeği (DBManager, QueryEngine) terminalden kullanmayı sağlar — hızlı
+test ve sunucusuz kullanım için. `python app.py` ile çalışır.
+"""
+
 import logging
 import os
 

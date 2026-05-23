@@ -11,6 +11,16 @@ log = logging.getLogger(__name__)
 
 
 class LLMEngine:
+    """
+    Cevap üreten LLM sarmalayıcısı (Turkish-Gemma-9B, GGUF/llama.cpp, GPU).
+
+    Bağlam + soruyu Gemma sohbet şablonuna yerleştirip cevap üretir; hem
+    tek seferlik (generate_answer) hem token-token (generate_answer_stream)
+    çalışır. Prompt, modeli sadece verilen bağlama dayanmaya zorlar
+    (uydurma yok). 'with' bloğuyla kullanılıp çıkışta unload ile VRAM
+    boşaltılır.
+    """
+
     def __init__(self):
         self.model_path = str(AppConfig.LLM_MODEL_PATH)
 
@@ -24,8 +34,8 @@ class LLMEngine:
             temperature=AppConfig.LLM_TEMPERATURE,
             max_tokens=AppConfig.LLM_MAX_TOKENS,
             n_ctx=AppConfig.LLM_N_CTX,
-            n_gpu_layers=-1,
-            n_batch=512,
+            n_gpu_layers=-1,  # -1 = tüm katmanlar GPU'da (8GB'a Q4 9B sığıyor)
+            n_batch=512,      # prompt'u 512'lik gruplar halinde işle (hız/bellek dengesi)
             repeat_penalty=1.1,
             verbose=False,
             # type_k / type_v LangChain'in bildiği parametreler değil.

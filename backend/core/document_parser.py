@@ -1,3 +1,23 @@
+"""
+PDF ayrıştırma motoru.
+
+Bir PDF'i alıp LLM'e gidebilecek node listesine çeviren 5 adımlı hat:
+
+    1. pymupdf4llm   → metin + görsel referansları (Markdown, layout modu)
+    2. Header/footer → her sayfada tekrar eden satırları (sayfa no, kurum
+                       adı vb.) temizle
+    3. Markdown      → pymupdf4llm çıktısındaki gürültüyü ayıkla
+    4. VLM enjeksiyonu → anlamlı görselleri görsel modeline okutup metne göm
+    5. Hibrit chunking → VLM bloklarını bölmeden, başlık bağlamını koruyarak
+                         node'lara ayır; ardından section parent katmanını üret
+
+Çıktı iki katmanlı: child node'lar (ChromaDB'ye embed edilir, arama bunların
+üzerinde yapılır) + section parent node'lar (sections.json'a salt metin olarak
+kaydedilir). Retriever önce child'da arar, sonra bağlamı parent'tan genişletir.
+
+Sınıf durum tutmaz; her PDF için parse() bir kez çağrılır.
+"""
+
 import hashlib
 import logging
 import os
@@ -12,7 +32,7 @@ import pymupdf4llm
 from core.config import AppConfig
 from llama_index.core import Document
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.core.schema import TextNode  # ← YENİ
+from llama_index.core.schema import TextNode
 from PIL import Image
 
 log = logging.getLogger(__name__)
@@ -36,7 +56,7 @@ class DocumentParser:
 
     Sorumluluklar:
         pymupdf4llm  →  Metin, başlık, madde işaretleri, paragraflar ve
-                        görsel referansları (![]()). dpi=300 ile görseller
+                        görsel referansları (![]()). dpi=250 ile görseller
                         yüksek çözünürlükte diske yazılır.
 
         PIL          →  Görsel filtresi. Dekoratif şeritler, logolar ve
@@ -49,6 +69,9 @@ class DocumentParser:
 
     def __init__(
         self,
+        # hf_threshold: bir satır, sayfaların bu oranına eşit veya daha fazlasında
+        # görünüyorsa tekrar eden header/footer sayılır (0.6 = %60). Düşürmek silmeyi
+        # agresifleştirir (gerçek içeriği de silebilir), yükseltmek gevşetir.
         hf_threshold: float = 0.6,
     ):
         # DEBUG: Parser her ingestion için bir kez oluşur; ingestion_engine
@@ -134,7 +157,9 @@ class DocumentParser:
         text = re.sub(
             r"\*\*==> picture \[.*?\] intentionally omitted <==\*\*", "", text
         )
+        # Tek başına satırda kalan sayfa numaraları ("12" gibi)
         text = re.sub(r"^\s*\d+\s*$", "", text, flags=re.MULTILINE)
+        # 3+ ardışık boş satırı tek paragraf molasına (\n\n) indir
         text = re.sub(r"(?:\n[ \t\x0b\f\r\xa0]*){3,}", "\n\n", text)
 
         # Tablo hücresi içindeki <br> etiketlerini boşlukla değiştir
@@ -269,7 +294,7 @@ class DocumentParser:
         return text
 
     # ──────────────────────────────────────────────────────────────────────────
-    # BÖLÜM 5 — VLM Farkındalıklı Hibrit Chunker  ← YENİ
+    # BÖLÜM 5 — VLM Farkındalıklı Hibrit Chunker
     # ──────────────────────────────────────────────────────────────────────────
 
     def _collect_slide_titles(self, text: str) -> set:
@@ -1001,8 +1026,9 @@ class DocumentParser:
             # ── Adım 5 ───────────────────────────────────────────────────────────
             nodes = self._chunking_with_vlm_awareness(enriched_text, file_path)
 
-            # parse() içinde, _chunking_with_vlm_awareness'tan sonra
-            nodes = self._create_section_parents(nodes)  # ← YENİ: parent-child katmanı
+            # Child node'ların üstüne section parent katmanını ekle.
+            # Bundan sonra liste hem child hem parent node içerir.
+            nodes = self._create_section_parents(nodes)
 
             log.info(
                 f"Parse tamamlandı: {base_name} — "

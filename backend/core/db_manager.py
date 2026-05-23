@@ -97,7 +97,13 @@ class DBManager:
         return list(catalog["collections"].keys())
 
     def create_collection(self, name: str) -> bool:
-        """..."""
+        """
+        Yeni koleksiyon oluşturur (hem catalog'a hem ChromaDB'ye).
+
+        Ad ChromaDB kuralına uymalı (3-50 karakter, harf/rakam/._-, başı ve
+        sonu alfanumerik) ve zaten var olmamalı. Geçersiz ad veya çakışmada
+        False döner; başarıda True.
+        """
         name = name.strip()
         if not name:
             log.warning("Koleksiyon adı boş olamaz.")
@@ -127,7 +133,14 @@ class DBManager:
         return True
 
     def delete_collection(self, name: str, chat_manager=None) -> bool:
-        """..."""
+        """
+        Koleksiyonu ve içindeki her şeyi siler: ChromaDB koleksiyonu, o
+        koleksiyona ait section'lar (sections.json), catalog kaydı ve
+        (chat_manager verilirse) bağlı sohbetler. Aktif koleksiyon silindiyse
+        aktiflik 'default'a düşer.
+
+        'default' silinemez. Olmayan koleksiyonda False döner.
+        """
         if name == self.DEFAULT_COLLECTION:
             log.warning(f"'{self.DEFAULT_COLLECTION}' koleksiyonu silinemez.")
             return False

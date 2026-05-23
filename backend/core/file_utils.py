@@ -1,3 +1,11 @@
+"""
+Güvenli dosya yazma yardımcıları.
+
+Projedeki tüm JSON yazma işlemleri (catalog, sections.json, sohbet dosyaları)
+bu modüldeki atomik yazmadan geçer. Amaç: çökme/elektrik kesintisi anında
+yarım yazılmış, parse edilemeyen JSON bırakmamak.
+"""
+
 import json
 import os
 import time

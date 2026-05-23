@@ -1,3 +1,13 @@
+"""
+Logging kurulumu.
+
+Konsola sade (INFO+), dosyaya zengin (DEBUG+, rotating) iki ayrı akış.
+Kullanıcı terminalde özet görür; tam teshis (traceback, süreler, retriever
+debug blokları) data/logs/app.log'a gider. setup_logging() bir kez, en başta
+(app.py veya api/main.py) çağrılır; idempotent olduğu için tekrar çağrılması
+handler çoğaltmaz.
+"""
+
 import logging
 import os
 import sys

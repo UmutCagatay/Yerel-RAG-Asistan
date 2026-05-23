@@ -1,3 +1,14 @@
+"""
+Ingestion orkestrasyonu.
+
+Bir veya birden çok PDF'i uçtan uca işleyip ChromaDB'ye yazan üst seviye
+akış. 8GB VRAM kısıtı için iki faza bölünmüştür: önce VLM (GPU) tüm
+görselleri okur ve boşaltılır, sonra Jina embedding (GPU) yüklenir ve
+chunk'lar yazılır. Modeller asla aynı anda VRAM'de durmaz.
+
+parser + vlm_engine + vector_store'u birbirine bağlar; DBManager bunu çağırır.
+"""
+
 import gc
 import logging
 import os

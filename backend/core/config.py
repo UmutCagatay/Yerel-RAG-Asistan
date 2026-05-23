@@ -2,6 +2,17 @@ from pathlib import Path
 
 
 class AppConfig:
+    """
+    Uygulama genelinde tek ayar kaynağı (single source of truth).
+
+    Tüm dizin yolları, model dosya adları ve chunk/retriever/LLM/VLM
+    parametreleri burada toplanır. Diğer modüller bu değerleri sabit
+    konumdan okur; sihirli sayılar koda dağılmaz, bir parametreyi
+    değiştirmek tek yerden yapılır.
+
+    Yollar __file__'a göre türetilir; proje başka bir klasöre taşınsa
+    bile çalışır (mutlak yol gömülü değil).
+    """
     # ── Dizinler ─────────────────────────────────────────────────────────
     # backend/core/config.py → iki yukarı = proje kökü
     BASE_DIR: Path = Path(__file__).resolve().parents[2]
@@ -40,6 +51,9 @@ class AppConfig:
     MAX_FILE_SIZE_MB: int = 15
 
     # ── Chunk parametreleri ──────────────────────────────────────────────
+    # SentenceSplitter'ın child node hedefi: ~1100 karakter gövde, 200 karakter
+    # örtüşme. Örtüşme, bir cümlenin chunk sınırında ortadan kesilip bağlam
+    # kaybetmesini engeller (komşu chunk son ~200 karakteri tekrar görür).
     CHUNK_SIZE: int = 1100
     CHUNK_OVERLAP: int = 200
 
@@ -55,10 +69,17 @@ class AppConfig:
     SECTION_OVERLAP_CHARS: int = 200
 
     # ── Retriever ────────────────────────────────────────────────────────
+    # Vektör araması k=10 aday çeker (recall için geniş tutulur), reranker
+    # bunları yeniden sıralayıp en iyi 3'ünü seçer (precision). 3 section,
+    # LLM'in bağlam penceresine güvenle sığan üst sınır.
     RETRIEVER_K: int = 10
     RERANKER_TOP_N: int = 3
 
     # ── LLM ──────────────────────────────────────────────────────────────
+    # N_CTX: bağlam penceresi (prompt + cevap toplam token tavanı).
+    # MAX_TOKENS: tek cevapta üretilecek en fazla token.
+    # TEMPERATURE: 0.1 = neredeyse deterministik; RAG'de uydurmadan çok
+    # bağlama sadık, tutarlı cevap istediğimiz için düşük tutuluyor.
     LLM_N_CTX: int = 8192
     LLM_MAX_TOKENS: int = 2048
     LLM_TEMPERATURE: float = 0.1

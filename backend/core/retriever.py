@@ -14,6 +14,19 @@ log = logging.getLogger(__name__)
 
 
 class RetrieverEngine:
+    """
+    Sorgu → ilgili bağlam getiren arama katmanı.
+
+    İki aşamalı: (1) Jina embedding (CPU) ile vektör araması k=10 child node
+    çeker, BGE reranker (CPU) bunları yeniden sıralayıp en iyi 3'ü seçer;
+    (2) seçilen child'lar section parent'larına genişletilir (sections.json'dan)
+    ki LLM parça değil bütün bölümü görsün. Parent yoksa komşu node
+    fallback'ine düşülür.
+
+    Modeller CPU'da; bu sayede LLM (GPU) ile çakışmaz. 'with' bloğuyla
+    kullanılıp çıkışta unload edilir.
+    """
+
     def __init__(
         self,
         collection_name: str = "default",

@@ -26,6 +26,19 @@ _VLM_MAX_PIXELS: int = 3_000_000
 
 
 class VLMEngine:
+    """
+    Görsel → metin çıkaran VLM sarmalayıcısı (ZwZ-4B, Qwen3-VL tabanlı).
+
+    Yaşam döngüsü: __init__'te model + mmproj (CLIP) bir kez VRAM'e yüklenir,
+    her görsel için extract_text() çağrılır, iş bitince unload() ile VRAM
+    boşaltılır. Ingestion'da Faz 1 boyunca tek instance tüm PDF'lerin
+    görsellerini işler (model başına tekrar yükleme yok).
+
+    Çıktı Markdown: tablo → Markdown tablosu, şema/grafik → yapısal açıklama.
+    Bu metin sonra parser tarafından <VLM_START>...<VLM_END> etiketleriyle
+    doküman metnine gömülür.
+    """
+
     def __init__(self) -> None:
         self.model_path = str(AppConfig.VLM_MODEL_PATH)
         self.mmproj_path = str(AppConfig.VLM_MMPROJ_PATH)
@@ -56,6 +69,8 @@ class VLMEngine:
         log.info(f"VLM Motoru (ZwZ-4B) yüklendi ({time.time() - load_start:.2f} sn).")
 
     def _prepare_image(self, file_path: str) -> str:
+        # Görseli RGB'ye çevir, çok büyükse _VLM_MAX_PIXELS'e ölçekle (vision
+        # token sayısını ve OOM riskini sınırlar), PNG → base64 data URI döndür.
         with Image.open(file_path) as img:
             img = img.convert("RGB")
             w, h = img.size
@@ -104,6 +119,13 @@ class VLMEngine:
         )
 
     def extract_text(self, image_path: str) -> str:
+        """
+        Tek bir görseli analiz edip Markdown metin döndürür.
+
+        Görsel okunamaz, hazırlanamaz veya model boş/hatalı cevap dönerse boş
+        string döner — çağıran (parser) bunu "içerik yok" olarak ele alıp ilgili
+        görsel referansını metinden düşürür. Hata fırlatmaz, ingestion'ı bölmez.
+        """
         if not os.path.exists(image_path):
             log.warning(f"Görsel bulunamadı: {image_path}")
             return ""

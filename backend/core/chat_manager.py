@@ -1,3 +1,11 @@
+"""
+Sohbet geçmişi yönetimi.
+
+Her sohbet ayrı bir JSON dosyası (data/chats/<id>.json). Sohbetler bir
+koleksiyona kilitlidir; koleksiyon silinir/yeniden adlandırılırsa DBManager
+bu sınıfı çağırıp ilgili sohbetleri senkron tutar. Yazımlar atomik.
+"""
+
 import json
 import logging
 import os
