@@ -141,28 +141,21 @@ pub fn run() {
             {
                 use tauri::Manager;
 
-                // Proje kökü: bu crate frontend/src-tauri içinde, iki üst = kök.
-                // Derleme-zamanı çapası (CARGO_MANIFEST_DIR) — dev için doğru.
-                // NOT: Paketlemeye geçince bu yol geçersiz olur; orada backend
-                // sidecar olarak resource dizininden çözülmeli.
-                let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .parent()
-                    .and_then(|p| p.parent())
-                    .map(|p| p.to_path_buf());
+                // Proje kökü sabit — bu kurulum yalnızca bu makinede, bu yolda
+                // çalışır. Dev de aynı yolda çalıştığı için debug/release
+                // ayrımına gerek yok. Klasör taşınırsa bu yol elle güncellenir.
+                let root = PathBuf::from(r"C:\Yerel_RAG_Asistan");
 
-                match project_root {
-                    Some(root) => match backend_proc::spawn(root) {
-                        Ok(guard) => {
-                            // State'e koy: uygulama ömrü boyunca canlı kalsın.
-                            _app.manage(guard);
-                        }
-                        Err(e) => {
-                            // Backend başlamazsa uygulama yine açılsın; frontend
-                            // zaten "bağlanılamıyor → Tekrar Dene" gösteriyor.
-                            eprintln!("[backend] başlatılamadı: {e}");
-                        }
-                    },
-                    None => eprintln!("[backend] proje kökü çözülemedi."),
+                match backend_proc::spawn(root) {
+                    Ok(guard) => {
+                        // State'e koy: uygulama ömrü boyunca canlı kalsın.
+                        _app.manage(guard);
+                    }
+                    Err(e) => {
+                        // Backend başlamazsa uygulama yine açılsın; frontend
+                        // zaten "bağlanılamıyor → Tekrar Dene" gösteriyor.
+                        eprintln!("[backend] başlatılamadı: {e}");
+                    }
                 }
             }
             Ok(())
