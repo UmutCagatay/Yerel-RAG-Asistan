@@ -8,3 +8,5 @@ backend/data/
 .vscode/
 *.pdf
 *.json
+*.sqlite3
+*.log

@@ -37,7 +37,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_DIR = PROJECT_ROOT / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
-from core.config import AppConfig          # noqa: E402
+from core.config import AppConfig  # noqa: E402
 from core.retriever import RetrieverEngine  # noqa: E402
 
 DATASET_PATH = Path(__file__).resolve().parent / "degerlendirme_seti.json"
@@ -85,8 +85,7 @@ class RetrievalEvaluator:
 
         scored = sorted(zip(scores, raw_docs), key=lambda x: x[0], reverse=True)
         reranked = [
-            {"file": d.metadata.get("file_name"), "score": float(s)}
-            for s, d in scored
+            {"file": d.metadata.get("file_name"), "score": float(s)} for s, d in scored
         ]
         return {
             "raw_files": raw_files,
@@ -151,13 +150,14 @@ class RetrievalEvaluator:
                 # Kısa ilerleme satırı
                 if tip in SCORED_TYPES:
                     mark = "✓" if rec["reranked"]["hit@3"] else "✗"
-                    print(f"  S{qid:>2} [{tip:<11}] {mark} "
-                          f"ham#{raw_rank} → rerank#{rer_rank}")
+                    print(
+                        f"  S{qid:>2} [{tip:<11}] {mark} "
+                        f"ham#{raw_rank} → rerank#{rer_rank}"
+                    )
                 else:
                     top = r["reranked"][0] if r["reranked"] else None
                     skor = f"{top['score']:+.3f}" if top else "—"
-                    print(f"  S{qid:>2} [{tip:<11}] (skorlanmaz) "
-                          f"top skor={skor}")
+                    print(f"  S{qid:>2} [{tip:<11}] (skorlanmaz) top skor={skor}")
 
         metrics = self._compute_metrics(records)
         self._save(records, metrics)
@@ -180,8 +180,7 @@ class RetrievalEvaluator:
             # Ham vektör aramasının recall'ı: doğru dosya top-10'da mıydı
             raw_hit = sum(1 for r in subset if r["raw"]["rank"] is not None)
             raw_mrr = sum(
-                (1.0 / r["raw"]["rank"]) if r["raw"]["rank"] else 0.0
-                for r in subset
+                (1.0 / r["raw"]["rank"]) if r["raw"]["rank"] else 0.0 for r in subset
             )
             return {
                 "n": n,
@@ -195,14 +194,12 @@ class RetrievalEvaluator:
         # Reranker etkisi: doğru dosya ham top-10'da VAR ama reranked top-3'te YOK
         # (reranker düşürdü) — teşhis için kritik sayı.
         demoted = [
-            r["id"] for r in scored
-            if r["raw"]["rank"] is not None
-            and not r["reranked"]["hit@3"]
+            r["id"]
+            for r in scored
+            if r["raw"]["rank"] is not None and not r["reranked"]["hit@3"]
         ]
         # Ham aramada hiç gelmeyen (vektör araması kaçırdı) — düzeltmesi farklı yer
-        missed_by_search = [
-            r["id"] for r in scored if r["raw"]["rank"] is None
-        ]
+        missed_by_search = [r["id"] for r in scored if r["raw"]["rank"] is None]
 
         by_type = {
             t: agg([r for r in scored if r["soru_tipi"] == t])
@@ -215,9 +212,14 @@ class RetrievalEvaluator:
 
         # cevapsiz: skorlanmaz, top skorları bilgi olarak topla
         cevapsiz = [
-            {"id": r["id"],
-             "top": r["reranked"]["ordered"][0] if r["reranked"]["ordered"] else None}
-            for r in records if r["soru_tipi"] == "cevapsiz"
+            {
+                "id": r["id"],
+                "top": r["reranked"]["ordered"][0]
+                if r["reranked"]["ordered"]
+                else None,
+            }
+            for r in records
+            if r["soru_tipi"] == "cevapsiz"
         ]
 
         return {
@@ -234,8 +236,12 @@ class RetrievalEvaluator:
     def _save(self, records: list[dict], metrics: dict) -> None:
         raw_path = OUTPUT_DIR / "retrieval_raw.json"
         with open(raw_path, "w", encoding="utf-8") as f:
-            json.dump({"records": records, "metrics": metrics}, f,
-                      ensure_ascii=False, indent=2)
+            json.dump(
+                {"records": records, "metrics": metrics},
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
         print(f"\nHam veri: {raw_path}")
 
     def _print_summary(self, m: dict) -> None:
@@ -253,14 +259,20 @@ class RetrievalEvaluator:
         print("  Tip bazlı (hit@3 / mrr):")
         for t, s in m["tip_bazli"].items():
             if s["n"]:
-                print(f"    {t:<12} n={s['n']:<2} "
-                      f"hit@3={s['hit@3']} mrr={s['mrr']} "
-                      f"(ham recall@10={s['ham_recall@10']})")
+                print(
+                    f"    {t:<12} n={s['n']:<2} "
+                    f"hit@3={s['hit@3']} mrr={s['mrr']} "
+                    f"(ham recall@10={s['ham_recall@10']})"
+                )
         print("  " + "-" * 60)
-        print(f"  Reranker düşürdü (ham'da var, top-3'te yok): "
-              f"{m['reranker_dusurdu'] or 'yok'}")
-        print(f"  Vektör araması kaçırdı (ham'da hiç yok)   : "
-              f"{m['vektor_kacirdi'] or 'yok'}")
+        print(
+            f"  Reranker düşürdü (ham'da var, top-3'te yok): "
+            f"{m['reranker_dusurdu'] or 'yok'}"
+        )
+        print(
+            f"  Vektör araması kaçırdı (ham'da hiç yok)   : "
+            f"{m['vektor_kacirdi'] or 'yok'}"
+        )
         print("  " + "-" * 60)
         print(f"  Ort. arama   : {m['ortalama_search_ms']} ms")
         print(f"  Ort. reranker: {m['ortalama_reranker_ms']} ms")

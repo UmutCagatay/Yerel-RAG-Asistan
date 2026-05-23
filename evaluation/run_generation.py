@@ -34,9 +34,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_DIR = PROJECT_ROOT / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
-from core.config import AppConfig          # noqa: E402
+from core.config import AppConfig  # noqa: E402
+from core.llm_engine import LLMEngine  # noqa: E402
 from core.retriever import RetrieverEngine  # noqa: E402
-from core.llm_engine import LLMEngine       # noqa: E402
 
 DATASET_PATH = Path(__file__).resolve().parent / "degerlendirme_seti.json"
 OUTPUT_DIR = Path(__file__).resolve().parent / "results"
@@ -93,23 +93,27 @@ class AnswerGenerator:
                     answer = llm.generate_answer(context=ctx, question=item["soru"])
                     gen_ms = (time.time() - t) * 1000
 
-                records.append({
-                    "id": qid,
-                    "soru_tipi": item["soru_tipi"],
-                    "soru": item["soru"],
-                    "ideal_cevap": item["ideal_cevap"],
-                    "kaynak_dosya": item.get("kaynak_dosya", ""),
-                    "context": ctx,            # 3b faithfulness için gerekli
-                    "system_answer": answer,
-                    "timings": {
-                        "retrieval_ms": round(retr_ms[qid], 1),
-                        "generation_ms": round(gen_ms, 1),
-                    },
-                })
+                records.append(
+                    {
+                        "id": qid,
+                        "soru_tipi": item["soru_tipi"],
+                        "soru": item["soru"],
+                        "ideal_cevap": item["ideal_cevap"],
+                        "kaynak_dosya": item.get("kaynak_dosya", ""),
+                        "context": ctx,  # 3b faithfulness için gerekli
+                        "system_answer": answer,
+                        "timings": {
+                            "retrieval_ms": round(retr_ms[qid], 1),
+                            "generation_ms": round(gen_ms, 1),
+                        },
+                    }
+                )
 
                 onizleme = answer.replace("\n", " ")[:90]
-                print(f"  S{qid:>2} [{item['soru_tipi']:<11}] "
-                      f"{gen_ms:>6.0f}ms | {onizleme}...")
+                print(
+                    f"  S{qid:>2} [{item['soru_tipi']:<11}] "
+                    f"{gen_ms:>6.0f}ms | {onizleme}..."
+                )
         # LLM burada otomatik unload
         print("[FAZ B] Bitti. LLM bellekten indi.\n")
 
@@ -119,7 +123,8 @@ class AnswerGenerator:
             json.dump({"records": records}, f, ensure_ascii=False, indent=2)
 
         avg_gen = sum(
-            r["timings"]["generation_ms"] for r in records
+            r["timings"]["generation_ms"]
+            for r in records
             if r["timings"]["generation_ms"] > 0
         ) / max(1, sum(1 for r in records if r["timings"]["generation_ms"] > 0))
 
