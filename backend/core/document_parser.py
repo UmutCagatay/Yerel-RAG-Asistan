@@ -112,8 +112,11 @@ class DocumentParser:
             lines = [line.strip() for line in lines if line.strip()]
             if not lines:
                 continue
-            candidate_lines.extend(lines[:3])
-            candidate_lines.extend(lines[-3:])
+            # Aynı sayfada ilk-3/son-3 dilimleri çakışırsa (sayfada <6 satır)
+            # aynı satır iki kez sayılıp eşiği yanlışça aşabilir; sayfa içinde
+            # tekille. Aksi halde az satırlı sayfalarda gerçek içerik tekrar
+            # eden header/footer sanılıp tümüyle silinebiliyor.
+            candidate_lines.extend(set(lines[:3] + lines[-3:]))
 
         line_counts = Counter(candidate_lines)
         stop_lines = set()
